@@ -7,7 +7,7 @@ name = "multi-agent-framework"
 version = "0.1.0"
 description = "Adaptive multi-agent orchestration framework with dynamic routing, self-evaluation, and adaptive learning."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 authors = [{ name = "Mohammad Rhayem" }]
 license = { text = "Proprietary" }
 dependencies = []
