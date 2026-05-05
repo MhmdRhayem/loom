@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "multi-agent-framework"
+version = "0.1.0"
+description = "Adaptive multi-agent orchestration framework with dynamic routing, self-evaluation, and adaptive learning."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "Mohammad Rhayem" }]
+license = { text = "Proprietary" }
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
