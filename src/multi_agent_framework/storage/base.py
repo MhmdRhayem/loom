@@ -34,8 +34,8 @@ class Database:
 
         db = Database(settings.database_url)
         await db.open()
-        conv_id = await db.conversations.create_conversation()
-        await db.memory.save_auto_memory(...)
+        conv_id = await db.conversations.create_conversation(owner_id="shopper:42")
+        await db.memory.save_auto_memory(owner_id="shopper:42", topic=..., content=...)
         await db.close()
     """
 
