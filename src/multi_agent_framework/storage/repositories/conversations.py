@@ -31,9 +31,9 @@ class TurnRecord:
 class ConversationRepository(Repository):
     """Read/write operations for conversations and their turns."""
 
-    async def create_conversation(self, status: str = "active") -> UUID:
+    async def create_conversation(self, owner_id: str, status: str = "active") -> UUID:
         async with self._session() as session, session.begin():
-            conv = Conversation(status=status)
+            conv = Conversation(owner_id=owner_id, status=status)
             session.add(conv)
             await session.flush()
             return conv.id
@@ -66,3 +66,22 @@ class ConversationRepository(Repository):
             stmt = select(ConversationTurn).where(ConversationTurn.conversation_id == conversation_id).order_by(ConversationTurn.turn_number.asc())
             result = await session.execute(stmt)
             return list(result.scalars().all())
+
+    async def list_conversations(self, owner_id: str, limit: int = 50) -> list[Conversation]:
+        """An owner's conversations, newest first (for history/dashboard)."""
+        stmt = select(Conversation).where(Conversation.owner_id == owner_id).order_by(Conversation.created_at.desc()).limit(limit)
+        async with self._session() as session:
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
+
+    async def set_conversation_status(self, conversation_id: UUID, status: str) -> None:
+        """Change a conversation's status (e.g. 'active' -> 'completed')."""
+        async with self._session() as session, session.begin():
+            await session.execute(update(Conversation).where(Conversation.id == conversation_id).values(status=status))
+
+    async def increment_compaction(self, conversation_id: UUID) -> None:
+        """Record that the conversation's context was compacted once more (Layer 2)."""
+        async with self._session() as session, session.begin():
+            await session.execute(
+                update(Conversation).where(Conversation.id == conversation_id).values(compaction_count=Conversation.compaction_count + 1)
+            )

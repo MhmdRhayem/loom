@@ -28,8 +28,10 @@ class Base(DeclarativeBase):
 
 class Conversation(Base):
     __tablename__ = "conversations"
+    __table_args__ = (Index("ix_conversations_owner", "owner_id"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    owner_id: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default="active")
     total_turns: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
@@ -83,12 +85,12 @@ class AgentPerformance(Base):
 class AutoMemory(Base):
     __tablename__ = "auto_memory"
     __table_args__ = (
-        Index("ix_auto_memory_project", "project_id"),
-        Index("ix_auto_memory_project_topic", "project_id", "topic"),
+        Index("ix_auto_memory_owner", "owner_id"),
+        Index("ix_auto_memory_owner_topic", "owner_id", "topic"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
-    project_id: Mapped[str] = mapped_column(Text, nullable=False)
+    owner_id: Mapped[str] = mapped_column(Text, nullable=False)
     topic: Mapped[str] = mapped_column(Text, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     confidence: Mapped[Decimal] = mapped_column(Numeric(4, 3), nullable=False, server_default="0.5")
@@ -100,10 +102,10 @@ class AutoMemory(Base):
 
 class DreamRun(Base):
     __tablename__ = "dream_runs"
-    __table_args__ = (Index("ix_dream_runs_project", "project_id"),)
+    __table_args__ = (Index("ix_dream_runs_owner", "owner_id"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
-    project_id: Mapped[str] = mapped_column(Text, nullable=False)
+    owner_id: Mapped[str] = mapped_column(Text, nullable=False)
     sessions_consolidated: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     memories_merged: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     memories_pruned: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
