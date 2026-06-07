@@ -10,12 +10,33 @@ readme = "README.md"
 requires-python = ">=3.12"
 authors = [{ name = "Mohammad Rhayem" }]
 license = { text = "Proprietary" }
-dependencies = []
+dependencies = [
+    "sqlalchemy>=2.0.36",
+    "psycopg[binary,pool]>=3.2.3",
+    "redis>=5.2",
+]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
+    "pytest-asyncio>=0.24",
 ]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.black]
+line-length = 200
+
+[tool.ruff]
+line-length = 200
+
+[tool.ruff.format]
+# match the black line-length above
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+markers = [
+    "requires_postgres: integration test that needs a live Postgres at DATABASE_URL",
+    "requires_redis: integration test that needs a live Redis at REDIS_URL",
+]
