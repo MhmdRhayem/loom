@@ -11,8 +11,11 @@ from __future__ import annotations
 
 import asyncio
 
+from multi_agent_framework._platform import configure_async_runtime
 from multi_agent_framework.core.config import Settings
 from multi_agent_framework.storage.base import Database
+
+configure_async_runtime()
 
 
 async def main() -> None:

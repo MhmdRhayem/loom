@@ -45,7 +45,7 @@ class Settings:
             openai_api_key=os.environ.get("OPENAI_API_KEY") or None,
             database_url=os.environ.get(
                 "DATABASE_URL",
-                "postgresql://postgres:postgres@localhost:5432/multi_agent",
+                "postgresql://postgres:postgres@localhost:5433/multi_agent",
             ),
             redis_url=os.environ.get("REDIS_URL", "redis://localhost:6379/0"),
             app_env=os.environ.get("APP_ENV", "development"),

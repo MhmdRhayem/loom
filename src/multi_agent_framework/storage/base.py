@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
 from multi_agent_framework.storage.models import Base
@@ -67,6 +68,18 @@ class Database:
         self.memory = MemoryRepository(self._sessionmaker)
         self.performance = PerformanceRepository(self._sessionmaker)
         self.dreams = DreamRepository(self._sessionmaker)
+
+    async def ping(self) -> None:
+        """Run ``SELECT 1`` to confirm the pool can reach Postgres.
+
+        ``open()`` only builds the engine lazily and never connects, so this is
+        the cheapest way to verify the backend is actually reachable (used at
+        startup and by the health check).
+        """
+        if self._engine is None:
+            raise RuntimeError("Database is not open; call await db.open() first")
+        async with self._engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
 
     async def create_all(self) -> None:
         """Create every table defined on the models if missing (idempotent).
