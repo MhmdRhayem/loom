@@ -1,0 +1,36 @@
+# Agent definition — Account Assistant (shopping-assistant demo). NEW.
+# Login, security resets, profile, and address/account settings. Deterministic
+# account_api CRUD -> fast tier; judge slightly above pure lookup because security
+# resets carry account-takeover risk. Provider-neutral tier names.
+
+name: account_assistant
+description: >-
+  Handles account and profile help: login issues, password and security resets,
+  and updating profile, addresses, and account settings. Does not handle orders,
+  carts, payments, products, or returns.
+
+capabilities:
+  - login_help
+  - security_reset
+  - profile_update
+  - address_management
+
+tools:
+  - account_api
+
+model: fast
+model_tiers:
+  explore: fast
+  plan: fast
+  execute: standard
+max_tokens: 1024
+
+eval_rubric:
+  - accuracy
+  - security_care
+  - clarity
+judge_sample_rate: 0.3
+
+fallback_agent: support_concierge
+memory_scope: owner
+multi_phase: false

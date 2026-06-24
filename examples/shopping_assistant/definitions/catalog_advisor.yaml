@@ -1,0 +1,45 @@
+# Agent definition — Catalog Advisor (shopping-assistant demo).
+# MERGE of the former product_recommendation + price_comparison: one agent owns the
+# whole pre-purchase catalog/commercial surface (search, recommend, compare, price,
+# deals, coupons), since "find a good cheap X with a coupon" is intrinsically both and
+# a description-based router would coin-flip a product/price split.
+# Provider-neutral tier names; model_tiers dormant unless multi_phase: true.
+
+name: catalog_advisor
+description: >-
+  Pre-purchase product help over the catalog: search, recommend, filter, and
+  compare products, answer product attribute questions, and find the best price
+  including deals and coupons. Does not handle checkout/payment, sizing/fit advice,
+  placed orders, or returns.
+
+capabilities:
+  - product_search
+  - recommendation
+  - filtering
+  - product_qa
+  - comparison
+  - price_lookup
+  - deal_finder
+  - coupon_check
+
+tools:
+  - product_db
+  - price_api
+
+model: standard
+model_tiers:
+  explore: fast
+  plan: standard
+  execute: standard
+max_tokens: 1536
+
+eval_rubric:
+  - relevance
+  - diversity
+  - explanation_quality
+  - price_accuracy
+judge_sample_rate: 0.4
+
+fallback_agent: support_concierge
+memory_scope: owner
+multi_phase: false

@@ -1,0 +1,39 @@
+# Agent definition — Support Concierge (shopping-assistant demo). NEW.
+# Catch-all: policy/FAQ, complaints, clarifying ambiguous asks, and escalation to a
+# human with context. Universal fallback for the specialists and the router's
+# low-confidence (<0.3) clarification target. Its own fallback is the terminal
+# human_handoff SINK NODE (not an agent), so the fallback graph is a DAG into a sink.
+
+name: support_concierge
+description: >-
+  General support catch-all: answers policy and FAQ questions, handles complaints,
+  asks a clarifying question when a request is ambiguous, and escalates to a human
+  agent with full context when needed. The safe destination when no specialist fits.
+
+capabilities:
+  - policy_faq
+  - complaint_handling
+  - clarification
+  - human_escalation
+
+tools:
+  - faq_kb
+  - ticket_api
+
+model: standard
+model_tiers:
+  explore: fast
+  plan: standard
+  execute: standard
+max_tokens: 1280
+
+eval_rubric:
+  - helpfulness
+  - policy_compliance
+  - escalation_appropriateness
+  - empathy
+judge_sample_rate: 1.0
+
+fallback_agent: human_handoff   # terminal sink node, not an agent
+memory_scope: owner
+multi_phase: false

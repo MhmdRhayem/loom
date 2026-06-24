@@ -1,0 +1,35 @@
+# Agent definition — Order Tracking (shopping-assistant demo).
+# Provider-neutral: `model` / `model_tiers` are config tier names (fast | standard | deep),
+# resolved to the active provider's model at instantiation — never a hardcoded model ID.
+# `model_tiers` is DORMANT (only used when multi_phase: true, an ablation).
+
+name: order_tracking
+description: >-
+  Answers "where is my order" questions: order status, shipment tracking, and
+  delivery estimates for a customer's already-placed orders. Read-only — does not
+  modify orders, carts, returns, or payments.
+
+capabilities:
+  - order_status
+  - shipping_tracking
+  - delivery_estimate
+
+tools:
+  - order_api
+
+model: fast
+model_tiers:
+  explore: fast
+  plan: fast
+  execute: standard
+max_tokens: 1024
+
+eval_rubric:
+  - accuracy
+  - completeness
+  - clarity
+judge_sample_rate: 0.15   # read-only lookup -> low critic sampling
+
+fallback_agent: support_concierge
+memory_scope: owner
+multi_phase: false

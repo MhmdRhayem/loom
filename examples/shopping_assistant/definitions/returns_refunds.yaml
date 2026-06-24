@@ -1,0 +1,34 @@
+# Agent definition — Returns & Refunds (shopping-assistant demo).
+# Renamed from returns_refund. High-stakes, irreversible money path -> judge 1.0.
+# Provider-neutral tier names; model_tiers dormant unless multi_phase: true.
+
+name: returns_refunds
+description: >-
+  Initiates and tracks returns, refunds, and exchanges under the store's return
+  policy, explaining the process clearly and empathetically. Handles post-purchase
+  reversals, not order tracking, checkout, or new purchases.
+
+capabilities:
+  - return_request
+  - refund_status
+  - exchange_processing
+
+tools:
+  - returns_api
+
+model: standard
+model_tiers:
+  explore: fast
+  plan: standard
+  execute: standard
+max_tokens: 1280
+
+eval_rubric:
+  - policy_compliance
+  - empathy
+  - process_clarity
+judge_sample_rate: 1.0   # irreversible money path -> always judged
+
+fallback_agent: support_concierge
+memory_scope: owner
+multi_phase: false
