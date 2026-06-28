@@ -28,6 +28,8 @@ One `/chat` request runs a fixed linear graph; `build_graph` is dependency-injec
 
 ```
 load_memory → route → execute_agent → evaluate → save_memory → END
+                          ^                |
+                          +---- revise ----+   (failing, retryable eval)
 ```
 
 | Node | Does | Status |
@@ -35,13 +37,17 @@ load_memory → route → execute_agent → evaluate → save_memory → END
 | `load_memory`   | Read owner's stored facts → `auto_memory_hints` | **wired** |
 | `route`         | Fast-tier LLM picks an agent → `{agent, confidence, reason}`; `_resolve()` applies fallback policy | **wired** |
 | `execute_agent` | Build chosen agent (tier→model + prompt + tools), inject hints as `<system-reminder>`, run the tool loop | **wired** |
-| `evaluate`      | Score the response | **stub** — always returns pass/1.0 |
+| `evaluate`      | Structural check + a *sampled* LLM critic (per agent `judge_sample_rate`) → `{pass, score, feedback}` | **wired** |
+| `revise`        | On a failing, retryable eval: bump `retry_count`, feed the critic's feedback back to the agent | **wired** |
 | `save_memory`   | Extract durable facts from the turn, upsert by topic | **wired** |
 
 Both memory nodes no-op unless a `memory` repo + `enable_auto_memory` + an `owner_id` are
 all present, and are **fail-silent** — a model or store error never breaks the turn.
 Routing safety (`agents/router.py`, pure `_resolve`): unknown agent → fallback;
 confidence `< 0.5` → fallback; otherwise keep the model's choice.
+Evaluation is fail-soft and bounded: the critic is sampled (cost), a failing turn retries
+at most `max_retries` times (default 2) with feedback, then passes through flagged — it
+never blocks the user.
 
 ## Agent YAML
 
@@ -57,7 +63,9 @@ boot, not on a request.
 | `model` | yes | Tier: `fast` \| `standard` \| `deep` (never a model ID) |
 | `fallback_agent` | yes | Another agent, or terminal sink `human_handoff` |
 | `max_tokens` | no | Default 1024 |
-| `eval_rubric`, `judge_sample_rate`, `memory_scope` | no | Parsed, not yet acted on |
+| `eval_rubric` | no | Criteria the LLM critic judges against (Phase 4) |
+| `judge_sample_rate` | no | Fraction of turns judged (risk weight; default 1.0) |
+| `memory_scope` | no | Parsed, not yet acted on |
 
 ## Provider swap
 
@@ -82,6 +90,8 @@ placeholders — verify at integration.)
 | `api/routes.py` | `POST /chat` (records each turn, fail-soft) + `GET /health` | wired |
 | `api/models.py` | Pydantic `ChatRequest`/`ChatResponse`/`HealthResponse` (incl. `owner_id`) | wired |
 | `memory/auto_memory.py` | Layer 2: `load_hints` (read) + `extract_and_upsert` (write, dedupe by topic); fail-silent | wired |
+| `evaluation/structural.py` | Stage 1: deterministic checks (empty / too short) | wired |
+| `evaluation/critic.py` | Stage 3: sampled LLM critic against the agent's `eval_rubric`; fail-silent | wired |
 | `storage/base.py` | `Database` — async pool + repositories; `create_all()` (Alembic-free) | wired — opened at boot |
 | `storage/models.py` | ORM tables for all phases | schema only |
 | `storage/repositories/memory.py` | `auto_memory` CRUD + topic upsert | **wired** (Layer 2) |
@@ -118,11 +128,12 @@ Run with `uvicorn --env-file .env myapp.app:app`. Nothing in the framework chang
 ## Status
 
 **Wired:** Phase 1 foundation, Phase 2 dynamic routing + agent execution, Phase 3 Layer 2
-cross-session auto-memory, and conversation/turn persistence (every `/chat` turn, fail-soft).
-Verified end-to-end on a live provider.
+cross-session auto-memory, conversation/turn persistence (every `/chat` turn, fail-soft),
+and Phase 4 evaluation (structural + sampled critic + one bounded retry). Verified
+end-to-end on a live provider.
 
-**Reserved** (schema/CRUD present, not yet on the request path): `agent_performance`,
-`dream_runs`, most of `redis_store`, and the `evaluate` node. The turn's `tokens_used` /
+**Reserved** (present, not yet on the request path): `agent_performance`, `dream_runs`,
+most of `redis_store`, and the evaluation **policy** stage. The turn's `tokens_used` /
 `cost` / `cache_hit` columns are written null until LLM-usage callbacks land. A few
 state/model fields (`session_summary`, `compaction_count`, `execution_model`) back
 deferred features and are currently unused.

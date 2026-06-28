@@ -7,9 +7,9 @@ you build your own assistant by filling **three seams**. A 7-agent e-commerce de
 as a worked example. Depth: **[ARCHITECTURE.md](ARCHITECTURE.md)**.
 
 One `/chat` turn runs a fixed LangGraph pipeline:
-`load_memory → route → execute_agent → evaluate → save_memory`. Today `route` +
-`execute_agent` and cross-session memory (`load`/`save`) are wired; `evaluate` is a
-pass-through stub.
+`load_memory → route → execute_agent → evaluate → save_memory`, with a bounded retry on a
+failing evaluation. All stages are wired — routing, agent execution, cross-session memory,
+and a sampled-critic evaluator.
 
 ## The three seams (how you reuse it)
 
@@ -65,7 +65,7 @@ curl -X POST localhost:8000/chat -H "content-type: application/json" \
 
 ## Status
 
-Wired: dynamic routing + agent execution, cross-session auto-memory, and conversation/turn
-persistence. Reserved (built, not yet called): agent performance, dream consolidation,
-most of Redis, and the `evaluate` node. See
-[ARCHITECTURE.md](ARCHITECTURE.md#status) for the line-by-line wired-vs-reserved list.
+Wired: dynamic routing + agent execution, cross-session auto-memory, conversation/turn
+persistence, and a sampled-critic evaluator with one bounded retry. Reserved (built, not
+yet called): agent performance, dream consolidation, most of Redis, and the evaluation
+policy stage. See [ARCHITECTURE.md](ARCHITECTURE.md#status) for the line-by-line list.

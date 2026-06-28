@@ -14,6 +14,7 @@ class ConversationState(TypedDict):
     tool_calls: list[dict[str, Any]]
 
     eval_result: dict[str, Any] | None
+    eval_feedback: str | None  # critic feedback fed back to the agent on a retry
     retry_count: int
     max_retries: int
 

@@ -1,13 +1,16 @@
-"""The conversation pipeline as a linear LangGraph.
+"""The conversation pipeline as a LangGraph.
 
 State flows through one node per stage::
 
     load_memory -> route -> execute_agent -> evaluate -> save_memory -> END
+                                  ^                |
+                                  +---- revise ----+   (on a failing, retryable eval)
 
-``route`` and ``execute_agent`` are real (Phase 2). ``load_memory`` and ``save_memory``
-are the Auto-Memory layer (Phase 3, Layer 2): ``load_memory`` surfaces an owner's stored
-memories as hints, ``save_memory`` extracts new durable facts after the turn. ``evaluate``
-is still a stub (Phase 4); the topology stays the same as it lands.
+``route`` + ``execute_agent`` are Phase 2; ``load_memory`` / ``save_memory`` are the
+Auto-Memory layer (Phase 3, Layer 2); ``evaluate`` is Phase 4: deterministic structural
+checks plus a *sampled* LLM critic (per the agent's ``judge_sample_rate``). A failing,
+retryable eval routes through ``revise`` (which feeds the critic's feedback back to the
+agent) for one more attempt; otherwise the turn proceeds and is never blocked.
 
 The graph is dependency-injected: :func:`build_graph` takes the agent ``registry``,
 ``settings``, a ``tool_provider`` (name -> callables), and an optional ``memory``
@@ -17,6 +20,7 @@ on, and the turn carries an ``owner_id`` — otherwise the memory nodes no-op.
 
 from __future__ import annotations
 
+import random
 import uuid
 from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Any
@@ -29,6 +33,8 @@ from multi_agent_framework.agents.router import route_turn
 from multi_agent_framework.core.config import Settings
 from multi_agent_framework.core.prompt_builder import build_messages
 from multi_agent_framework.core.state import ConversationState
+from multi_agent_framework.evaluation.critic import critique
+from multi_agent_framework.evaluation.structural import check_structural
 from multi_agent_framework.memory.auto_memory import extract_and_upsert, load_hints
 
 if TYPE_CHECKING:
@@ -69,27 +75,69 @@ def build_graph(
         """Build the selected agent from its definition + tools and run it on the conversation.
 
         Memory hints (if any) are injected ahead of the conversation as a synthetic
-        ``<system-reminder>`` so the agent treats them as hints, not ground truth.
+        ``<system-reminder>``. On a retry, the critic's feedback is appended so the agent
+        revises. Does not mutate ``messages`` — the answer lives in ``agent_response`` — so
+        the retry loop re-runs cleanly from the original turn.
         """
         defn = registry.get(state["current_agent"])
-        tools = tool_provider(defn.tools)
-        agent = build_agent(defn, settings, tools)
+        agent = build_agent(defn, settings, tool_provider(defn.tools))
 
         hints = state.get("auto_memory_hints") or []
-        messages = build_messages(state["messages"], {}, hints) if hints else state["messages"]
-        result = await agent.ainvoke({"messages": messages})
+        messages = build_messages(state["messages"], {}, hints) if hints else list(state["messages"])
 
+        feedback = state.get("eval_feedback")
+        if feedback:
+            previous = state.get("agent_response") or ""
+            messages = messages + [
+                {
+                    "role": "user",
+                    "content": (
+                        "Your previous answer was rejected by review.\n"
+                        f"Previous answer: {previous}\n"
+                        f"Reviewer feedback: {feedback}\n"
+                        "Provide an improved answer to the original request."
+                    ),
+                }
+            ]
+
+        result = await agent.ainvoke({"messages": messages})
         result_messages = result["messages"]
-        response = _text_of(result_messages[-1])
         return {
-            "agent_response": response,
-            "messages": state["messages"] + [{"role": "assistant", "content": response}],
+            "agent_response": _text_of(result_messages[-1]),
             "tool_calls": _collect_tool_calls(result_messages),
         }
 
     async def evaluate(state: ConversationState) -> dict[str, Any]:
-        """Score the response (Phase 4). Stub: always passes."""
-        return {"eval_result": {"pass": True, "score": 1.0, "feedback": "stub evaluator until Phase 4"}}
+        """Phase 4: deterministic structural check, then a sampled LLM critic."""
+        response = state.get("agent_response") or ""
+
+        structural = check_structural(response)
+        if not structural["pass"]:
+            return {"eval_result": {"pass": False, "score": 0.0, "feedback": structural["reason"], "stage": "structural"}}
+
+        agent = state.get("current_agent")
+        defn = registry.get(agent) if agent and agent in registry else None
+        if defn is None:
+            return {"eval_result": {"pass": True, "score": 1.0, "feedback": "no rubric to judge against", "stage": "skipped"}}
+
+        # Sample per the agent's risk weight; always judge on a retry (we got here by failing).
+        if state.get("retry_count", 0) == 0 and random.random() >= defn.judge_sample_rate:
+            return {"eval_result": {"pass": True, "score": None, "feedback": "not judged (sampled out)", "stage": "skipped"}}
+
+        verdict = await critique(response, defn, settings, _last_user_message(state["messages"]))
+        return {"eval_result": {**verdict, "stage": "critic"}}
+
+    async def revise(state: ConversationState) -> dict[str, Any]:
+        """Set up one retry: bump the counter and feed the critic's feedback to the agent."""
+        result = state.get("eval_result") or {}
+        return {"retry_count": state.get("retry_count", 0) + 1, "eval_feedback": result.get("feedback")}
+
+    def should_retry(state: ConversationState) -> str:
+        """Route a failing, retryable eval back through ``revise``; otherwise finish."""
+        result = state.get("eval_result") or {}
+        if result.get("pass") is False and state.get("retry_count", 0) < state.get("max_retries", 0):
+            return "revise"
+        return "save_memory"
 
     async def save_memory(state: ConversationState) -> dict[str, Any]:
         """Layer 2 (write): extract durable facts from the turn and upsert them. Fail-silent."""
@@ -105,13 +153,15 @@ def build_graph(
     builder.add_node("route", route)
     builder.add_node("execute_agent", execute_agent)
     builder.add_node("evaluate", evaluate)
+    builder.add_node("revise", revise)
     builder.add_node("save_memory", save_memory)
 
     builder.add_edge(START, "load_memory")
     builder.add_edge("load_memory", "route")
     builder.add_edge("route", "execute_agent")
     builder.add_edge("execute_agent", "evaluate")
-    builder.add_edge("evaluate", "save_memory")
+    builder.add_conditional_edges("evaluate", should_retry, {"revise": "revise", "save_memory": "save_memory"})
+    builder.add_edge("revise", "execute_agent")
     builder.add_edge("save_memory", END)
 
     return builder.compile()
@@ -129,6 +179,7 @@ def build_initial_state(message: str, conversation_id: str | None = None, owner_
         agent_response=None,
         tool_calls=[],
         eval_result=None,
+        eval_feedback=None,
         retry_count=0,
         max_retries=2,
         session_summary=None,
@@ -139,7 +190,7 @@ def build_initial_state(message: str, conversation_id: str | None = None, owner_
 
 
 def _last_user_message(messages: Sequence[dict[str, Any]]) -> str:
-    """The most recent user-authored message text (what the memory extractor reads)."""
+    """The most recent user-authored message text (what the critic + memory read)."""
     for message in reversed(messages):
         if message.get("role") == "user":
             return str(message.get("content", ""))
