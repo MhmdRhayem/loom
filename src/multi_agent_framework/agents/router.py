@@ -74,23 +74,32 @@ async def route_turn(
     )
     decision: RouterDecision = await model.with_structured_output(RouterDecision).ainvoke(_build_prompt(registry, messages))
 
+    return _resolve(decision, registry, fallback_agent=fallback_agent, min_confidence=min_confidence)
+
+
+def _resolve(
+    decision: RouterDecision,
+    registry: AgentRegistry,
+    *,
+    fallback_agent: str | None = None,
+    min_confidence: float = _DEFAULT_MIN_CONFIDENCE,
+) -> dict[str, Any]:
+    """Apply the safety post-checks to a raw model decision.
+
+    Pure (no I/O), so the routing *policy* is unit-testable without an LLM call:
+    unknown agent -> fallback (if usable); confidence below ``min_confidence`` ->
+    fallback; otherwise keep the model's choice.
+    """
     agent, confidence, reason = decision.agent, decision.confidence, decision.reason
+    has_fallback = bool(fallback_agent) and fallback_agent in registry
 
     if agent not in registry:
-        if fallback_agent and fallback_agent in registry:
-            return {
-                "agent": fallback_agent,
-                "confidence": confidence,
-                "reason": f"router named unknown agent '{agent}'; using fallback. ({reason})",
-            }
+        if has_fallback:
+            return {"agent": fallback_agent, "confidence": confidence, "reason": f"router named unknown agent '{agent}'; using fallback. ({reason})"}
         # No usable fallback: surface the raw decision so the failure is visible.
         return {"agent": agent, "confidence": confidence, "reason": reason}
 
-    if fallback_agent and fallback_agent in registry and confidence < min_confidence:
-        return {
-            "agent": fallback_agent,
-            "confidence": confidence,
-            "reason": f"low confidence {confidence:.2f} < {min_confidence:.2f} for '{agent}'; routing to fallback. ({reason})",
-        }
+    if has_fallback and confidence < min_confidence:
+        return {"agent": fallback_agent, "confidence": confidence, "reason": f"low confidence {confidence:.2f} < {min_confidence:.2f} for '{agent}'; routing to fallback. ({reason})"}
 
     return {"agent": agent, "confidence": confidence, "reason": reason}
