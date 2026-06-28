@@ -34,14 +34,13 @@ def build_agent(
     settings: Settings,
     tools: Sequence[BaseTool | Callable[..., Any]] | None = None,
 ):
-    """Build a runnable agent for ``defn``. Tools arrive in Task 2.4; an empty
-    roster still yields a conversational agent."""
-    system_prompt, _ = build_system_prompt(
+    """Build a runnable agent for ``defn``. With no tools it is still a
+    conversational agent; with tools, ``create_agent`` runs the tool loop."""
+    system_prompt = build_system_prompt(
         {
             "name": defn.name,
             "description": defn.description,
             "capabilities": list(defn.capabilities),
-            "tools": list(defn.tools),
         }
     )
     return create_agent(

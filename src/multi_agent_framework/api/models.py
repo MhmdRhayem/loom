@@ -12,7 +12,7 @@ class ChatRequest(BaseModel):
     )
     owner_id: str | None = Field(
         default=None,
-        description="Memory/persistence scope (e.g. 'shopper:42'). Reserved for later phases.",
+        description="Cross-session memory scope (e.g. 'shopper:42'). Omit to run the turn without memory.",
     )
 
 

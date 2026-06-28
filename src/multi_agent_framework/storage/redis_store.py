@@ -11,10 +11,6 @@ class KeyPattern:
     AGENT_MEM = "agent:{agent_name}:mem:{key}"
     ROUTING_CACHE = "route:{fingerprint}"
     FEATURE_FLAG = "flag:{name}"
-    TASK_STATUS = "task:{task_id}:status"
-    TASK_INPUT = "task:{task_id}:input"
-    TASK_OUTPUT = "task:{task_id}:output"
-    TASK_APPROVAL = "task:{task_id}:approval"
 
     @staticmethod
     def conv_state(conversation_id: str) -> str:
@@ -31,22 +27,6 @@ class KeyPattern:
     @staticmethod
     def feature_flag(name: str) -> str:
         return KeyPattern.FEATURE_FLAG.format(name=name)
-
-    @staticmethod
-    def task_status(task_id: str) -> str:
-        return KeyPattern.TASK_STATUS.format(task_id=task_id)
-
-    @staticmethod
-    def task_input(task_id: str) -> str:
-        return KeyPattern.TASK_INPUT.format(task_id=task_id)
-
-    @staticmethod
-    def task_output(task_id: str) -> str:
-        return KeyPattern.TASK_OUTPUT.format(task_id=task_id)
-
-    @staticmethod
-    def task_approval(task_id: str) -> str:
-        return KeyPattern.TASK_APPROVAL.format(task_id=task_id)
 
 
 class RedisStore:
@@ -99,27 +79,3 @@ class RedisStore:
         if value is None:
             return default
         return value == "1"
-
-    async def push_task_input(self, task_id: str, payload: dict[str, Any]) -> None:
-        await self.client.set(KeyPattern.task_input(task_id), json.dumps(payload))
-        await self.client.set(KeyPattern.task_status(task_id), "pending")
-
-    _CLAIM_LUA = "if redis.call('GET', KEYS[1]) == 'pending' then " "redis.call('SET', KEYS[1], 'running') return 1 " "else return 0 end"
-
-    async def claim_task(self, task_id: str) -> dict[str, Any] | None:
-        ok = await self.client.eval(self._CLAIM_LUA, 1, KeyPattern.task_status(task_id))
-        if not ok:
-            return None
-        raw = await self.client.get(KeyPattern.task_input(task_id))
-        return json.loads(raw) if raw else None
-
-    async def complete_task(self, task_id: str, output: dict[str, Any]) -> None:
-        await self.client.set(KeyPattern.task_output(task_id), json.dumps(output))
-        await self.client.set(KeyPattern.task_status(task_id), "done")
-
-    async def request_approval(self, task_id: str, request: dict[str, Any]) -> None:
-        await self.client.set(KeyPattern.task_approval(task_id), json.dumps(request))
-
-    async def read_approval(self, task_id: str) -> dict[str, Any] | None:
-        raw = await self.client.get(KeyPattern.task_approval(task_id))
-        return json.loads(raw) if raw else None

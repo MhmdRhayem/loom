@@ -3,14 +3,14 @@ from typing import Any
 SYSTEM_REMINDER_TAG = "system-reminder"
 
 
-def build_system_prompt(
-    agent_definition: dict[str, Any],
-    session_context: dict[str, Any] | None = None,
-    static_intro: str = "",
-) -> tuple[str, str]:
-    static_block = _compose_static_block(agent_definition, static_intro)
-    dynamic_block = _compose_dynamic_block(session_context or {})
-    return static_block, dynamic_block
+def build_system_prompt(agent_definition: dict[str, Any], static_intro: str = "") -> str:
+    """Compose an agent's system prompt from its declarative definition.
+
+    Returns a single static string — what ``create_agent`` takes. A per-session
+    dynamic block + explicit prompt-cache boundary are deferred: nothing injects
+    per-session values here yet, so add them when there is a real value to inject.
+    """
+    return _compose_static_block(agent_definition, static_intro)
 
 
 def build_messages(
@@ -45,13 +45,6 @@ def _compose_static_block(agent_definition: dict[str, Any], static_intro: str) -
         "- Stay within your declared capabilities; defer out-of-scope work."
     )
     return "\n\n".join(parts)
-
-
-def _compose_dynamic_block(session_context: dict[str, Any]) -> str:
-    if not session_context:
-        return ""
-    lines = [f"{key}: {value}" for key, value in session_context.items()]
-    return "Session context:\n" + "\n".join(lines)
 
 
 def _format_system_reminder(
