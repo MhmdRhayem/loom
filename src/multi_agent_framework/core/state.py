@@ -1,6 +1,4 @@
-from typing import Any, Literal, TypedDict
-
-ExecutionModel = Literal["fork", "teammate", "worktree"]
+from typing import Any, TypedDict
 
 
 class ConversationState(TypedDict):
@@ -21,10 +19,5 @@ class ConversationState(TypedDict):
     session_summary: str | None
     auto_memory_hints: list[str]
     memory_writes: list[dict[str, Any]]
-
-    execution_model: ExecutionModel
-    spawned_agents: list[str]
-    coordinator_mode: bool
-    approval_queue: list[dict[str, Any]]
 
     metadata: dict[str, Any]

@@ -66,3 +66,14 @@ class Settings:
             log_level=os.environ.get("LOG_LEVEL", "INFO"),
             default_provider=os.environ.get("DEFAULT_PROVIDER", "anthropic"),
         )
+
+    def model_id_for_tier(self, tier: str) -> str:
+        """Resolve a tier name (fast/standard/deep) to the model ID for the active provider."""
+        try:
+            provider_models = getattr(self.model_tiers, self.default_provider)
+        except AttributeError:
+            raise ValueError(f"unknown provider {self.default_provider!r}") from None
+        try:
+            return getattr(provider_models, tier)
+        except AttributeError:
+            raise ValueError(f"unknown model tier {tier!r}; expected fast|standard|deep") from None

@@ -4,7 +4,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Request
 
 from multi_agent_framework.api.models import ChatRequest, ChatResponse, HealthResponse
-from multi_agent_framework.core.graph import make_initial_state
+from multi_agent_framework.core.graph import build_initial_state
 
 router = APIRouter()
 
@@ -42,7 +42,7 @@ async def health(request: Request) -> HealthResponse:
 async def chat(request: Request, payload: ChatRequest) -> ChatResponse:
     """Send one user message through the full graph and return the result."""
     graph = request.app.state.graph
-    state = make_initial_state(payload.message, payload.conversation_id)
+    state = build_initial_state(payload.message, payload.conversation_id)
     result = await graph.ainvoke(state)
     return ChatResponse(
         conversation_id=result["conversation_id"],
