@@ -25,16 +25,16 @@ class ModelTiers:
     )
     openai: ProviderModels = field(
         default_factory=lambda: ProviderModels(
-            fast="gpt-5.4-mini",   # VERIFY (post-cutoff)
-            standard="gpt-5.4",    # VERIFY (post-cutoff)
-            deep="gpt-5.5",        # VERIFY (post-cutoff; replaces phantom gpt-5-pro)
+            fast="gpt-5.4-mini",  # VERIFY (post-cutoff)
+            standard="gpt-5.4",  # VERIFY (post-cutoff)
+            deep="gpt-5.5",  # VERIFY (post-cutoff; replaces phantom gpt-5-pro)
         )
     )
     google: ProviderModels = field(
         default_factory=lambda: ProviderModels(
-            fast="gemini-3.1-flash-lite",   # VERIFY (post-cutoff)
-            standard="gemini-3.5-flash",    # VERIFY (post-cutoff)
-            deep="gemini-3.1-pro",          # VERIFY (post-cutoff)
+            fast="gemini-3.1-flash-lite",  # VERIFY (post-cutoff)
+            standard="gemini-3.5-flash",  # VERIFY (post-cutoff)
+            deep="gemini-3.1-pro",  # VERIFY (post-cutoff)
         )
     )
 

@@ -24,10 +24,6 @@ tools:
   - payment_api
 
 model: deep
-model_tiers:
-  explore: fast
-  plan: standard
-  execute: deep
 max_tokens: 1280
 
 eval_rubric:
@@ -39,4 +35,3 @@ judge_sample_rate: 1.0   # money path -> always judged
 
 fallback_agent: support_concierge
 memory_scope: owner
-multi_phase: false

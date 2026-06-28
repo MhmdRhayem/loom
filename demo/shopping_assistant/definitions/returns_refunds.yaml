@@ -1,6 +1,6 @@
 # Agent definition — Returns & Refunds (shopping-assistant demo).
 # Renamed from returns_refund. High-stakes, irreversible money path -> judge 1.0.
-# Provider-neutral tier names; model_tiers dormant unless multi_phase: true.
+# Provider-neutral tier names (fast | standard | deep); resolved to the active provider in config.py.
 
 name: returns_refunds
 description: >-
@@ -17,10 +17,6 @@ tools:
   - returns_api
 
 model: standard
-model_tiers:
-  explore: fast
-  plan: standard
-  execute: standard
 max_tokens: 1280
 
 eval_rubric:
@@ -31,4 +27,3 @@ judge_sample_rate: 1.0   # irreversible money path -> always judged
 
 fallback_agent: support_concierge
 memory_scope: owner
-multi_phase: false

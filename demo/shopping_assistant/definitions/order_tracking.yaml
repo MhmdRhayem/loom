@@ -1,7 +1,6 @@
 # Agent definition — Order Tracking (shopping-assistant demo).
-# Provider-neutral: `model` / `model_tiers` are config tier names (fast | standard | deep),
-# resolved to the active provider's model at instantiation — never a hardcoded model ID.
-# `model_tiers` is DORMANT (only used when multi_phase: true, an ablation).
+# Provider-neutral: `model` is a config tier name (fast | standard | deep), resolved to the
+# active provider's model at instantiation — never a hardcoded model ID.
 
 name: order_tracking
 description: >-
@@ -18,10 +17,6 @@ tools:
   - order_api
 
 model: fast
-model_tiers:
-  explore: fast
-  plan: fast
-  execute: standard
 max_tokens: 1024
 
 eval_rubric:
@@ -32,4 +27,3 @@ judge_sample_rate: 0.15   # read-only lookup -> low critic sampling
 
 fallback_agent: support_concierge
 memory_scope: owner
-multi_phase: false

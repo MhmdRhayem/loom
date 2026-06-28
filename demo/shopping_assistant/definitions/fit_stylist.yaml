@@ -20,10 +20,6 @@ tools:
   - style_engine
 
 model: standard
-model_tiers:
-  explore: fast
-  plan: standard
-  execute: standard
 max_tokens: 1536
 
 eval_rubric:
@@ -34,4 +30,3 @@ judge_sample_rate: 0.5
 
 fallback_agent: catalog_advisor
 memory_scope: owner
-multi_phase: false

@@ -11,6 +11,7 @@ component. Run the demo from the repo root with::
 
     python -m uvicorn demo.shopping_assistant.app:app --reload
 """
+
 from __future__ import annotations
 
 import logging
@@ -49,9 +50,7 @@ def create_app(
     async def lifespan(app: FastAPI):
         settings = Settings.from_env()
         app.state.settings = settings
-        app.state.graph = build_graph(
-            registry, settings, tool_provider, fallback_agent=fallback_agent
-        )
+        app.state.graph = build_graph(registry, settings, tool_provider, fallback_agent=fallback_agent)
 
         db: Database | None = Database(settings.database_url)
         try:
