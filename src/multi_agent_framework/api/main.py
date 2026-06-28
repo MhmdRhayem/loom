@@ -50,6 +50,7 @@ def create_app(
     async def lifespan(app: FastAPI):
         settings = Settings.from_env()
         app.state.settings = settings
+        app.state.registry = registry
 
         db: Database | None = Database(settings.database_url)
         try:

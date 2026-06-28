@@ -79,13 +79,14 @@ placeholders — verify at integration.)
 | `agents/factory.py` | One `AgentDefinition` → live LangChain `create_agent` (tier→model + prompt + tools) | wired |
 | `agents/router.py` | Fast-tier routing call; pure `_resolve()` fallback policy | wired |
 | `api/main.py` | `create_app(...)` factory + lifespan (opens DB/Redis fail-soft, builds graph) | wired |
-| `api/routes.py` | `POST /chat`, `GET /health` | wired |
+| `api/routes.py` | `POST /chat` (records each turn, fail-soft) + `GET /health` | wired |
 | `api/models.py` | Pydantic `ChatRequest`/`ChatResponse`/`HealthResponse` (incl. `owner_id`) | wired |
 | `memory/auto_memory.py` | Layer 2: `load_hints` (read) + `extract_and_upsert` (write, dedupe by topic); fail-silent | wired |
 | `storage/base.py` | `Database` — async pool + repositories; `create_all()` (Alembic-free) | wired — opened at boot |
 | `storage/models.py` | ORM tables for all phases | schema only |
 | `storage/repositories/memory.py` | `auto_memory` CRUD + topic upsert | **wired** (Layer 2) |
-| `storage/repositories/{conversations,performance,dreams}.py` | turn/EMA/consolidation CRUD | reserved — not yet called |
+| `storage/repositories/conversations.py` | conversation + turn CRUD; `record_turn` per request | **wired** |
+| `storage/repositories/{performance,dreams}.py` | EMA scores / consolidation CRUD | reserved — not yet called |
 | `storage/redis_store.py` | state/routing cache, feature flags | partial — opened + `/health` ping; rest reserved |
 | `_platform.py` | Forces the Windows selector event loop (async psycopg) | wired |
 | `scripts/init_db.py` | Creates the schema from the models, idempotent | wired |
@@ -117,12 +118,13 @@ Run with `uvicorn --env-file .env myapp.app:app`. Nothing in the framework chang
 ## Status
 
 **Wired:** Phase 1 foundation, Phase 2 dynamic routing + agent execution, Phase 3 Layer 2
-cross-session auto-memory. Verified end-to-end on a live provider.
+cross-session auto-memory, and conversation/turn persistence (every `/chat` turn, fail-soft).
+Verified end-to-end on a live provider.
 
-**Reserved** (schema/CRUD present, not yet on the request path): conversation/turn
-persistence (`conversations.py` + tables — needs a conversation-identity decision),
-`agent_performance`, `dream_runs`, most of `redis_store`, and the `evaluate` node.
-Some state/model fields (`session_summary`, `compaction_count`, `execution_model`) back
+**Reserved** (schema/CRUD present, not yet on the request path): `agent_performance`,
+`dream_runs`, most of `redis_store`, and the `evaluate` node. The turn's `tokens_used` /
+`cost` / `cache_hit` columns are written null until LLM-usage callbacks land. A few
+state/model fields (`session_summary`, `compaction_count`, `execution_model`) back
 deferred features and are currently unused.
 
 **Deferred by design:** an agent base class and Fork/Teammate/Worktree execution models;

@@ -4,7 +4,8 @@ from dataclasses import dataclass
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from multi_agent_framework.storage.base import Repository
 from multi_agent_framework.storage.models import Conversation, ConversationTurn
@@ -61,6 +62,51 @@ class ConversationRepository(Repository):
             )
             return row.id
 
+    async def ensure_conversation(self, conversation_id: UUID, owner_id: str, status: str = "active") -> None:
+        """Insert the conversation row under a known id if it does not exist (idempotent)."""
+        stmt = pg_insert(Conversation).values(id=conversation_id, owner_id=owner_id, status=status).on_conflict_do_nothing(index_elements=["id"])
+        async with self._session() as session, session.begin():
+            await session.execute(stmt)
+
+    async def next_turn_number(self, conversation_id: UUID) -> int:
+        """1-based number for the next turn in this conversation."""
+        async with self._session() as session:
+            count = await session.scalar(select(func.count()).select_from(ConversationTurn).where(ConversationTurn.conversation_id == conversation_id))
+            return int(count or 0) + 1
+
+    async def record_turn(
+        self,
+        *,
+        conversation_id: UUID,
+        owner_id: str,
+        user_message: str,
+        agent_name: str | None = None,
+        routing_confidence: float | None = None,
+        agent_response: str | None = None,
+        eval_score: float | None = None,
+        retry_count: int = 0,
+        model_tier: str | None = None,
+        latency_ms: int | None = None,
+    ) -> int:
+        """Ensure the conversation exists, then append a turn with an auto-assigned number.
+
+        Convenience for the request path (ensure -> number -> insert); returns the turn id.
+        """
+        await self.ensure_conversation(conversation_id, owner_id)
+        turn = TurnRecord(
+            conversation_id=conversation_id,
+            turn_number=await self.next_turn_number(conversation_id),
+            user_message=user_message,
+            agent_name=agent_name,
+            routing_confidence=routing_confidence,
+            agent_response=agent_response,
+            eval_score=eval_score,
+            retry_count=retry_count,
+            model_tier=model_tier,
+            latency_ms=latency_ms,
+        )
+        return await self.insert_turn(turn)
+
     async def get_turns(self, conversation_id: UUID) -> list[ConversationTurn]:
         async with self._session() as session:
             stmt = select(ConversationTurn).where(ConversationTurn.conversation_id == conversation_id).order_by(ConversationTurn.turn_number.asc())
@@ -82,6 +128,4 @@ class ConversationRepository(Repository):
     async def increment_compaction(self, conversation_id: UUID) -> None:
         """Record that the conversation's context was compacted once more (Layer 2)."""
         async with self._session() as session, session.begin():
-            await session.execute(
-                update(Conversation).where(Conversation.id == conversation_id).values(compaction_count=Conversation.compaction_count + 1)
-            )
+            await session.execute(update(Conversation).where(Conversation.id == conversation_id).values(compaction_count=Conversation.compaction_count + 1))

@@ -65,7 +65,7 @@ curl -X POST localhost:8000/chat -H "content-type: application/json" \
 
 ## Status
 
-Wired: dynamic routing + agent execution, and cross-session auto-memory.
-Reserved (built, not yet called): conversation/turn persistence, agent performance,
-dream consolidation, most of Redis, and the `evaluate` node. See
+Wired: dynamic routing + agent execution, cross-session auto-memory, and conversation/turn
+persistence. Reserved (built, not yet called): agent performance, dream consolidation,
+most of Redis, and the `evaluate` node. See
 [ARCHITECTURE.md](ARCHITECTURE.md#status) for the line-by-line wired-vs-reserved list.
