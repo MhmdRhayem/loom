@@ -4,21 +4,22 @@ State flows through one node per stage::
 
     load_memory -> route -> execute_agent -> evaluate -> save_memory -> END
 
-``route`` and ``execute_agent`` are real as of Phase 2: the router picks an agent
-from the registry, and the factory builds + runs that agent with its tools. The
-surrounding ``load_memory`` / ``evaluate`` / ``save_memory`` nodes are still stubs
-(Phases 3-4); the topology stays the same as their bodies land.
+``route`` and ``execute_agent`` are real (Phase 2). ``load_memory`` and ``save_memory``
+are the Auto-Memory layer (Phase 3, Layer 2): ``load_memory`` surfaces an owner's stored
+memories as hints, ``save_memory`` extracts new durable facts after the turn. ``evaluate``
+is still a stub (Phase 4); the topology stays the same as it lands.
 
 The graph is dependency-injected: :func:`build_graph` takes the agent ``registry``,
-``settings``, and a ``tool_provider`` (name -> callables), so the framework never
-imports any specific demo. The composition root wires those in.
+``settings``, a ``tool_provider`` (name -> callables), and an optional ``memory``
+repository. Auto-memory is active only when a memory repo is present, the feature flag is
+on, and the turn carries an ``owner_id`` — otherwise the memory nodes no-op.
 """
 
 from __future__ import annotations
 
 import uuid
 from collections.abc import Callable, Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from langgraph.graph import END, START, StateGraph
 
@@ -26,7 +27,12 @@ from multi_agent_framework.agents.factory import build_agent
 from multi_agent_framework.agents.registry import AgentRegistry
 from multi_agent_framework.agents.router import route_turn
 from multi_agent_framework.core.config import Settings
+from multi_agent_framework.core.prompt_builder import build_messages
 from multi_agent_framework.core.state import ConversationState
+from multi_agent_framework.memory.auto_memory import extract_and_upsert, load_hints
+
+if TYPE_CHECKING:
+    from multi_agent_framework.storage.repositories.memory import MemoryRepository
 
 ToolProvider = Callable[[Sequence[str]], Sequence[Any]]
 
@@ -37,12 +43,18 @@ def build_graph(
     tool_provider: ToolProvider,
     *,
     fallback_agent: str | None = None,
+    memory: "MemoryRepository | None" = None,
 ):
     """Compile and return the conversation graph wired to ``registry`` + ``settings``."""
 
+    auto_memory_on = settings.enable_auto_memory and memory is not None
+
     async def load_memory(state: ConversationState) -> dict[str, Any]:
-        """Load relevant memory for this turn (Phase 3). Stub: no hints yet."""
-        return {"auto_memory_hints": []}
+        """Layer 2 (read): surface the owner's stored memories as hints. Fail-silent."""
+        owner_id = state.get("owner_id")
+        if not auto_memory_on or not owner_id:
+            return {"auto_memory_hints": []}
+        return {"auto_memory_hints": await load_hints(memory, owner_id)}
 
     async def route(state: ConversationState) -> dict[str, Any]:
         """Pick the agent for this turn via the LLM router."""
@@ -54,11 +66,18 @@ def build_graph(
         }
 
     async def execute_agent(state: ConversationState) -> dict[str, Any]:
-        """Build the selected agent from its definition + tools and run it on the conversation."""
+        """Build the selected agent from its definition + tools and run it on the conversation.
+
+        Memory hints (if any) are injected ahead of the conversation as a synthetic
+        ``<system-reminder>`` so the agent treats them as hints, not ground truth.
+        """
         defn = registry.get(state["current_agent"])
         tools = tool_provider(defn.tools)
         agent = build_agent(defn, settings, tools)
-        result = await agent.ainvoke({"messages": state["messages"]})
+
+        hints = state.get("auto_memory_hints") or []
+        messages = build_messages(state["messages"], {}, hints) if hints else state["messages"]
+        result = await agent.ainvoke({"messages": messages})
 
         result_messages = result["messages"]
         response = _text_of(result_messages[-1])
@@ -73,8 +92,13 @@ def build_graph(
         return {"eval_result": {"pass": True, "score": 1.0, "feedback": "stub evaluator until Phase 4"}}
 
     async def save_memory(state: ConversationState) -> dict[str, Any]:
-        """Persist memory write-backs (Phase 3). Stub: no-op."""
-        return {"memory_writes": []}
+        """Layer 2 (write): extract durable facts from the turn and upsert them. Fail-silent."""
+        owner_id = state.get("owner_id")
+        if not auto_memory_on or not owner_id:
+            return {"memory_writes": []}
+        user_message = _last_user_message(state["messages"])
+        written = await extract_and_upsert(memory, settings, owner_id, user_message, state.get("agent_response") or "")
+        return {"memory_writes": [{"extracted": written}]}
 
     builder = StateGraph(ConversationState)
     builder.add_node("load_memory", load_memory)
@@ -93,11 +117,12 @@ def build_graph(
     return builder.compile()
 
 
-def build_initial_state(message: str, conversation_id: str | None = None) -> ConversationState:
+def build_initial_state(message: str, conversation_id: str | None = None, owner_id: str | None = None) -> ConversationState:
     """Build a fresh :class:`ConversationState` for one user message."""
     return ConversationState(
         messages=[{"role": "user", "content": message}],
         conversation_id=conversation_id or str(uuid.uuid4()),
+        owner_id=owner_id,
         current_agent=None,
         routing_scores={},
         routing_reason=None,
@@ -111,6 +136,14 @@ def build_initial_state(message: str, conversation_id: str | None = None) -> Con
         memory_writes=[],
         metadata={},
     )
+
+
+def _last_user_message(messages: Sequence[dict[str, Any]]) -> str:
+    """The most recent user-authored message text (what the memory extractor reads)."""
+    for message in reversed(messages):
+        if message.get("role") == "user":
+            return str(message.get("content", ""))
+    return ""
 
 
 def _text_of(message: Any) -> str:

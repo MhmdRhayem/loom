@@ -50,7 +50,6 @@ def create_app(
     async def lifespan(app: FastAPI):
         settings = Settings.from_env()
         app.state.settings = settings
-        app.state.graph = build_graph(registry, settings, tool_provider, fallback_agent=fallback_agent)
 
         db: Database | None = Database(settings.database_url)
         try:
@@ -61,6 +60,16 @@ def create_app(
             await db.close()
             db = None
         app.state.db = db
+
+        # Build the graph after the DB so the Auto-Memory layer can use it.
+        # No DB (or flag off) -> build_graph leaves the memory nodes as no-ops.
+        app.state.graph = build_graph(
+            registry,
+            settings,
+            tool_provider,
+            fallback_agent=fallback_agent,
+            memory=db.memory if db is not None else None,
+        )
 
         redis_store: RedisStore | None = RedisStore(settings.redis_url)
         try:

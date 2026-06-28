@@ -4,6 +4,7 @@ from typing import Any, TypedDict
 class ConversationState(TypedDict):
     messages: list[dict[str, Any]]
     conversation_id: str
+    owner_id: str | None  # memory/persistence scope; None disables auto-memory for the turn
 
     current_agent: str | None
     routing_scores: dict[str, float]
