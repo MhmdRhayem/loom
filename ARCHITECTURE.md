@@ -67,6 +67,11 @@ the LLM pick when there's no data). **Layer 4 "dreaming"** (`memory/consolidatio
 `POST /dream`) periodically merges duplicate memories and prunes stale ones, logging each run
 to `dream_runs`. All of it is fail-soft and never blocks a turn.
 
+**Fail-silent + flags (Phase 7).** Every background system — memory, evaluation, learning,
+dreaming, delegation, persistence — wraps its work so an error is logged and swallowed, never
+breaking the turn; Postgres and Redis are optional at boot. Each subsystem is also gated by an
+`ENABLE_*` flag, so any can be turned off (for ablation) and the main path still answers.
+
 ## Agent YAML
 
 The filename stem **must** equal `name`. Validated at load time, so a bad roster fails at
@@ -90,11 +95,12 @@ boot, not on a request.
 
 `core/config.py` (`ModelTiers`) maps provider → tier → model ID; `Settings.model_id_for_tier()`
 resolves against `DEFAULT_PROVIDER`. So `DEFAULT_PROVIDER=openai` swaps the whole fleet.
-Keys: `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GOOGLE_API_KEY`. `ENABLE_AUTO_MEMORY=0`
-disables memory; `MAX_DELEGATION_DEPTH` / `DELEGATION_BUDGET` bound agent-to-agent calls;
-`ROUTING_STRATEGY=thompson` turns on learned routing; `DREAM_MIN_MEMORIES` /
-`DREAM_INTERVAL_HOURS` gate consolidation. (Anthropic IDs are authoritative; OpenAI/Google
-IDs are post-cutoff placeholders — verify at integration.)
+Keys: `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GOOGLE_API_KEY`. **Feature flags** gate each
+subsystem (all default on; flip for ablation): `ENABLE_MEMORY` / `ENABLE_EVALUATION` /
+`ENABLE_LEARNING` / `ENABLE_COORDINATOR` / `ENABLE_DREAMING`. Tuning: `MAX_DELEGATION_DEPTH` /
+`DELEGATION_BUDGET`, `ROUTING_STRATEGY=thompson`, `DREAM_MIN_MEMORIES` / `DREAM_INTERVAL_HOURS`.
+(Anthropic IDs are authoritative; OpenAI/Google IDs are post-cutoff placeholders — verify at
+integration.)
 
 ## File map
 
@@ -157,10 +163,11 @@ Run with `uvicorn --env-file .env myapp.app:app`. Nothing in the framework chang
 **Wired:** Phase 1 foundation, Phase 2 dynamic routing + agent execution, Phase 3 Layer 2
 cross-session auto-memory, conversation/turn persistence (every `/chat` turn, fail-soft),
 Phase 4 evaluation (structural + sampled critic + one bounded retry), and Phase 5
-multi-agent (coordinator + guarded peer delegation + approval gates, in-process), and Phase 6
+multi-agent (coordinator + guarded peer delegation + approval gates, in-process), Phase 6
 adaptive learning (per-`(agent,category)` EMA scoring from eval + `/feedback`, Thompson
-routing off by default, and Layer 4 memory "dreaming"). Phases 2-4 verified on a live
-provider; Phases 5-6 guards/scoring/orchestration verified deterministically offline.
+routing off by default, and Layer 4 memory "dreaming"), and Phase 7 fail-silent + feature
+flags (each subsystem gated by an `ENABLE_*` flag). Verified end-to-end on a live provider:
+routing, single + coordinator multi-agent, memory, evaluation, persistence, scoring, dreaming.
 
 **Reserved** (present, not yet on the request path): most of `redis_store` and the
 evaluation **policy** stage. The turn's `tokens_used` / `cost` / `cache_hit` columns are

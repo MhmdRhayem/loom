@@ -51,7 +51,7 @@ def build_graph(
 ):
     """Compile and return the conversation graph wired to ``registry`` + ``settings``."""
 
-    auto_memory_on = settings.enable_auto_memory and memory is not None
+    auto_memory_on = settings.enable_memory and memory is not None
 
     def _delegation_context() -> DelegationContext:
         """A fresh per-turn context carrying the delegation limits + the approval guardrail."""
@@ -75,8 +75,9 @@ def build_graph(
         agent = decision["agent"]
         category = decision.get("category") or "general"
         reason = decision["reason"]
+        multipart = settings.enable_coordinator and bool(decision.get("multipart"))
         # Optional learned routing: override the LLM pick with the bandit when we have data.
-        if settings.routing_strategy == "thompson" and performance is not None and not decision.get("multipart"):
+        if settings.routing_strategy == "thompson" and performance is not None and not multipart:
             picked = await pick_agent(performance, registry.names(), category)
             if picked and picked != agent:
                 agent, reason = picked, f"thompson policy for '{category}' (LLM suggested {agent}). {reason}"
@@ -84,7 +85,7 @@ def build_graph(
             "current_agent": agent,
             "routing_scores": {agent: decision["confidence"]},
             "routing_reason": reason,
-            "coordinator_mode": bool(decision.get("multipart")),
+            "coordinator_mode": multipart,
             "query_category": category,
         }
 
@@ -124,6 +125,8 @@ def build_graph(
 
     async def evaluate(state: ConversationState) -> dict[str, Any]:
         """Phase 4: deterministic structural check, then a sampled LLM critic."""
+        if not settings.enable_evaluation:
+            return {"eval_result": {"pass": True, "score": None, "feedback": "evaluation disabled", "stage": "disabled"}}
         response = state.get("agent_response") or ""
         structural = check_structural(response)
         if not structural["pass"]:

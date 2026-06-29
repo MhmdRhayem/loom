@@ -108,7 +108,8 @@ async def _record_turn(request: Request, payload: ChatRequest, result: dict, lat
         logger.warning("turn persistence failed", exc_info=True)
 
     # Phase 6 learning signal: fold the eval verdict into the agent's per-category EMA score.
-    if agent:
+    settings = getattr(request.app.state, "settings", None)
+    if agent and getattr(settings, "enable_learning", True):
         await record_score(db.performance, agent, result.get("query_category") or "general", reward_from_eval(eval_result))
 
 
@@ -135,7 +136,7 @@ async def dream(request: Request, owner_id: str, force: bool = False) -> DreamRe
     """Run memory consolidation ("dreaming") for an owner — when due, or force=true (Layer 4)."""
     db = getattr(request.app.state, "db", None)
     settings = getattr(request.app.state, "settings", None)
-    if db is None or settings is None:
+    if db is None or settings is None or not settings.enable_dreaming:
         return DreamResponse(ran=False, merged=0, pruned=0)
     if not force and not await should_dream(db.memory, db.dreams, owner_id, settings):
         return DreamResponse(ran=False, merged=0, pruned=0)

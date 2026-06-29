@@ -2,6 +2,12 @@ import os
 from dataclasses import dataclass, field
 
 
+def _flag(name: str, default: bool = True) -> bool:
+    """Read a boolean feature flag from the environment (defaults to ``default``)."""
+    raw = os.environ.get(name, "true" if default else "false")
+    return raw.strip().lower() not in ("0", "false", "no", "off")
+
+
 @dataclass(frozen=True)
 class ProviderModels:
     fast: str
@@ -49,7 +55,12 @@ class Settings:
     app_env: str = "development"
     log_level: str = "INFO"
     default_provider: str = "anthropic"
-    enable_auto_memory: bool = True  # Phase 3, Layer 2; off via ENABLE_AUTO_MEMORY=0
+    # Feature flags (Phase 7) — each gates one subsystem; flip any for ablation.
+    enable_memory: bool = True        # Layer 2 auto-memory (load hints + extract)
+    enable_evaluation: bool = True    # structural + LLM critic (+ retry)
+    enable_learning: bool = True       # per-(agent,category) EMA scoring
+    enable_coordinator: bool = True    # multi-part -> coordinator path
+    enable_dreaming: bool = True       # Layer 4 consolidation
     max_delegation_depth: int = 2    # how deep agent-to-agent calls may nest (1 disables delegation)
     delegation_budget: int = 6       # max total agent runs per turn (hard stop)
     routing_strategy: str = "llm"    # "llm" (default) or "thompson" (Phase 6 learned routing)
@@ -71,7 +82,11 @@ class Settings:
             app_env=os.environ.get("APP_ENV", "development"),
             log_level=os.environ.get("LOG_LEVEL", "INFO"),
             default_provider=os.environ.get("DEFAULT_PROVIDER", "anthropic"),
-            enable_auto_memory=os.environ.get("ENABLE_AUTO_MEMORY", "true").strip().lower() not in ("0", "false", "no", "off"),
+            enable_memory=_flag("ENABLE_MEMORY"),
+            enable_evaluation=_flag("ENABLE_EVALUATION"),
+            enable_learning=_flag("ENABLE_LEARNING"),
+            enable_coordinator=_flag("ENABLE_COORDINATOR"),
+            enable_dreaming=_flag("ENABLE_DREAMING"),
             max_delegation_depth=int(os.environ.get("MAX_DELEGATION_DEPTH", "2")),
             delegation_budget=int(os.environ.get("DELEGATION_BUDGET", "6")),
             routing_strategy=os.environ.get("ROUTING_STRATEGY", "llm"),
