@@ -6,10 +6,10 @@ functions**. The framework (`src/multi_agent_framework/`) imports nothing from `
 you build your own assistant by filling **three seams**. A 7-agent e-commerce demo ships
 as a worked example. Depth: **[ARCHITECTURE.md](ARCHITECTURE.md)**.
 
-One `/chat` turn runs a fixed LangGraph pipeline:
-`load_memory → route → execute_agent → evaluate → save_memory`, with a bounded retry on a
-failing evaluation. All stages are wired — routing, agent execution, cross-session memory,
-and a sampled-critic evaluator.
+One `/chat` turn runs a LangGraph pipeline:
+`load_memory → route → (execute_agent | coordinate) → evaluate → save_memory`, with a
+bounded retry on a failing evaluation. Multi-part requests fan out to a coordinator, and
+any agent can delegate to a peer mid-task.
 
 ## The three seams (how you reuse it)
 
@@ -66,6 +66,7 @@ curl -X POST localhost:8000/chat -H "content-type: application/json" \
 ## Status
 
 Wired: dynamic routing + agent execution, cross-session auto-memory, conversation/turn
-persistence, and a sampled-critic evaluator with one bounded retry. Reserved (built, not
-yet called): agent performance, dream consolidation, most of Redis, and the evaluation
-policy stage. See [ARCHITECTURE.md](ARCHITECTURE.md#status) for the line-by-line list.
+persistence, a sampled-critic evaluator with one bounded retry, and a multi-agent
+coordinator with guarded peer delegation + approval gates. Reserved (built, not yet
+called): agent performance, dream consolidation, most of Redis, and the evaluation policy
+stage. See [ARCHITECTURE.md](ARCHITECTURE.md#status) for the line-by-line list.

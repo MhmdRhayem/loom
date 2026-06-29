@@ -50,6 +50,8 @@ class Settings:
     log_level: str = "INFO"
     default_provider: str = "anthropic"
     enable_auto_memory: bool = True  # Phase 3, Layer 2; off via ENABLE_AUTO_MEMORY=0
+    max_delegation_depth: int = 2    # how deep agent-to-agent calls may nest (1 disables delegation)
+    delegation_budget: int = 6       # max total agent runs per turn (hard stop)
     model_tiers: ModelTiers = field(default_factory=ModelTiers)
 
     @classmethod
@@ -67,6 +69,8 @@ class Settings:
             log_level=os.environ.get("LOG_LEVEL", "INFO"),
             default_provider=os.environ.get("DEFAULT_PROVIDER", "anthropic"),
             enable_auto_memory=os.environ.get("ENABLE_AUTO_MEMORY", "true").strip().lower() not in ("0", "false", "no", "off"),
+            max_delegation_depth=int(os.environ.get("MAX_DELEGATION_DEPTH", "2")),
+            delegation_budget=int(os.environ.get("DELEGATION_BUDGET", "6")),
         )
 
     def model_id_for_tier(self, tier: str) -> str:

@@ -41,6 +41,7 @@ class AgentDefinition:
     eval_rubric: tuple[str, ...] = ()
     judge_sample_rate: float = 1.0
     memory_scope: str = "owner"
+    requires_approval: bool = False  # high-risk agent: coordinator reviews before it acts
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "AgentDefinition":
@@ -55,6 +56,7 @@ class AgentDefinition:
             eval_rubric=tuple(data.get("eval_rubric") or ()),
             judge_sample_rate=float(data.get("judge_sample_rate", 1.0)),
             memory_scope=str(data.get("memory_scope", "owner")),
+            requires_approval=bool(data.get("requires_approval", False)),
         )
 
 

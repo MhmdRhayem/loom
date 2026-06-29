@@ -22,4 +22,8 @@ class ConversationState(TypedDict):
     auto_memory_hints: list[str]
     memory_writes: list[dict[str, Any]]
 
+    coordinator_mode: bool
+    spawned_agents: list[str]
+    approval_queue: list[dict[str, Any]]
+
     metadata: dict[str, Any]

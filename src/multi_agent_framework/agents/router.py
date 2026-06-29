@@ -33,6 +33,8 @@ _INSTRUCTIONS = (
     "- Use the agent name exactly as written in the menu.\n"
     "- Give a confidence in [0, 1]: high when one agent clearly fits, low when the request "
     "is ambiguous or no agent fits well.\n"
+    "- Set multipart=true ONLY if the request clearly needs two or more different agents "
+    "(e.g. two unrelated tasks in one message); otherwise false. Still name the best primary agent.\n"
     "- Keep the reason to one sentence."
 )
 
@@ -43,6 +45,7 @@ class RouterDecision(BaseModel):
     agent: str = Field(description="Exact name of the single best agent from the menu.")
     confidence: float = Field(ge=0.0, le=1.0, description="0-1 confidence in the choice.")
     reason: str = Field(description="One-sentence justification.")
+    multipart: bool = Field(default=False, description="True only if the request needs two or more different agents.")
 
 
 def _format_menu(registry: AgentRegistry) -> str:
@@ -74,7 +77,9 @@ async def route_turn(
     )
     decision: RouterDecision = await model.with_structured_output(RouterDecision).ainvoke(_build_prompt(registry, messages))
 
-    return _resolve(decision, registry, fallback_agent=fallback_agent, min_confidence=min_confidence)
+    out = _resolve(decision, registry, fallback_agent=fallback_agent, min_confidence=min_confidence)
+    out["multipart"] = decision.multipart
+    return out
 
 
 def _resolve(

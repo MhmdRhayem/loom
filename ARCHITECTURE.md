@@ -27,16 +27,17 @@ One `/chat` request runs a fixed linear graph; `build_graph` is dependency-injec
 `ConversationState` TypedDict (`core/state.py`) is passed between nodes.
 
 ```
-load_memory → route → execute_agent → evaluate → save_memory → END
-                          ^                |
-                          +---- revise ----+   (failing, retryable eval)
+load_memory → route → (execute_agent | coordinate) → evaluate → save_memory → END
+                            ^                              |
+                            +------------- revise ---------+   (failing, retryable single-agent eval)
 ```
 
 | Node | Does | Status |
 |------|------|--------|
 | `load_memory`   | Read owner's stored facts → `auto_memory_hints` | **wired** |
 | `route`         | Fast-tier LLM picks an agent → `{agent, confidence, reason}`; `_resolve()` applies fallback policy | **wired** |
-| `execute_agent` | Build chosen agent (tier→model + prompt + tools), inject hints as `<system-reminder>`, run the tool loop | **wired** |
+| `execute_agent` | Run the routed agent (tier→model + prompt + tools + memory hints); it may delegate to peers (guarded) | **wired** |
+| `coordinate`    | Multi-part path: decompose the request → run agents in parallel → synthesize one answer | **wired** |
 | `evaluate`      | Structural check + a *sampled* LLM critic (per agent `judge_sample_rate`) → `{pass, score, feedback}` | **wired** |
 | `revise`        | On a failing, retryable eval: bump `retry_count`, feed the critic's feedback back to the agent | **wired** |
 | `save_memory`   | Extract durable facts from the turn, upsert by topic | **wired** |
@@ -48,6 +49,14 @@ confidence `< 0.5` → fallback; otherwise keep the model's choice.
 Evaluation is fail-soft and bounded: the critic is sampled (cost), a failing turn retries
 at most `max_retries` times (default 2) with feedback, then passes through flagged — it
 never blocks the user.
+
+**Multi-agent (Phase 5).** Two patterns share one guarded runner (`agents/delegation.py`,
+`run_agent`): the **coordinator** (`agents/coordinator.py`) handles a multi-part request
+top-down (decompose → run agents in parallel → synthesize), and any agent can **delegate to
+a peer** mid-task via auto-generated `ask_<agent>` tools. Every nested run is bounded by
+`max_delegation_depth` and a per-turn `delegation_budget` (so calls can't loop or fan out
+without end), and high-risk agents (`requires_approval`) pass an automated approval review
+first. All in-process; cross-process workers and human-in-the-loop approval are not built.
 
 ## Agent YAML
 
@@ -66,26 +75,30 @@ boot, not on a request.
 | `eval_rubric` | no | Criteria the LLM critic judges against (Phase 4) |
 | `judge_sample_rate` | no | Fraction of turns judged (risk weight; default 1.0) |
 | `memory_scope` | no | Parsed, not yet acted on |
+| `requires_approval` | no | If true, the coordinator reviews before this agent acts (Phase 5) |
 
 ## Provider swap
 
 `core/config.py` (`ModelTiers`) maps provider → tier → model ID; `Settings.model_id_for_tier()`
 resolves against `DEFAULT_PROVIDER`. So `DEFAULT_PROVIDER=openai` swaps the whole fleet.
 Keys: `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GOOGLE_API_KEY`. `ENABLE_AUTO_MEMORY=0`
-disables memory. (Anthropic IDs are authoritative; OpenAI/Google IDs are post-cutoff
-placeholders — verify at integration.)
+disables memory; `MAX_DELEGATION_DEPTH` / `DELEGATION_BUDGET` bound agent-to-agent calls.
+(Anthropic IDs are authoritative; OpenAI/Google IDs are post-cutoff placeholders — verify
+at integration.)
 
 ## File map
 
 | File | Responsibility | Status |
 |------|----------------|--------|
 | `core/state.py` | `ConversationState` — the one object every node reads/writes | wired |
-| `core/config.py` | `Settings` + `ModelTiers`; `model_id_for_tier`; `enable_auto_memory` | wired |
+| `core/config.py` | `Settings` + `ModelTiers`; `model_id_for_tier`; `enable_auto_memory`; delegation limits | wired |
 | `core/prompt_builder.py` | System prompt + `<system-reminder>` injection (memory hints) | wired |
 | `core/graph.py` | The pipeline; `build_graph(...)`, `build_initial_state(...)` | wired |
 | `agents/registry.py` | Load + validate YAML; lookup by name/capability; `router_menu()` | wired |
 | `agents/factory.py` | One `AgentDefinition` → live LangChain `create_agent` (tier→model + prompt + tools) | wired |
-| `agents/router.py` | Fast-tier routing call; pure `_resolve()` fallback policy | wired |
+| `agents/router.py` | Fast-tier routing call; pure `_resolve()` fallback policy + `multipart` flag | wired |
+| `agents/delegation.py` | Guarded `run_agent` + `ask_<agent>` peer-delegation tools (depth/budget/approval) | wired |
+| `agents/coordinator.py` | Multi-part decompose → parallel → synthesize; `review_action` approval guardrail | wired |
 | `api/main.py` | `create_app(...)` factory + lifespan (opens DB/Redis fail-soft, builds graph) | wired |
 | `api/routes.py` | `POST /chat` (records each turn, fail-soft) + `GET /health` | wired |
 | `api/models.py` | Pydantic `ChatRequest`/`ChatResponse`/`HealthResponse` (incl. `owner_id`) | wired |
@@ -120,7 +133,7 @@ capabilities: [order_status, shipping_tracking]
 tools: [order_api]            # names resolved by your get_tools
 model: fast                   # tier: fast | standard | deep
 fallback_agent: support_concierge   # a known agent, or human_handoff
-# optional: max_tokens, eval_rubric, judge_sample_rate, memory_scope
+# optional: max_tokens, eval_rubric, judge_sample_rate, memory_scope, requires_approval
 ```
 
 Run with `uvicorn --env-file .env myapp.app:app`. Nothing in the framework changes.
@@ -129,8 +142,10 @@ Run with `uvicorn --env-file .env myapp.app:app`. Nothing in the framework chang
 
 **Wired:** Phase 1 foundation, Phase 2 dynamic routing + agent execution, Phase 3 Layer 2
 cross-session auto-memory, conversation/turn persistence (every `/chat` turn, fail-soft),
-and Phase 4 evaluation (structural + sampled critic + one bounded retry). Verified
-end-to-end on a live provider.
+Phase 4 evaluation (structural + sampled critic + one bounded retry), and Phase 5
+multi-agent (coordinator decompose/parallel/synthesize + guarded peer delegation + approval
+gates, all in-process). Phases 2-4 verified on a live provider; Phase 5's guards +
+orchestration verified deterministically offline.
 
 **Reserved** (present, not yet on the request path): `agent_performance`, `dream_runs`,
 most of `redis_store`, and the evaluation **policy** stage. The turn's `tokens_used` /
@@ -138,6 +153,7 @@ most of `redis_store`, and the evaluation **policy** stage. The turn's `tokens_u
 state/model fields (`session_summary`, `compaction_count`, `execution_model`) back
 deferred features and are currently unused.
 
-**Deferred by design:** an agent base class and Fork/Teammate/Worktree execution models;
-router fan-out / cascades / learned policies; memory Layers 1, 3, 4. (Layer 1 is
-effectively met — every turn rebuilds the agent from its YAML via the factory.)
+**Deferred by design:** an agent base class; the Fork/Teammate/Worktree models +
+cross-process/Redis-mailbox workers + human-in-the-loop approval (the in-process coordinator
+covers the multi-agent need); router fan-out / cascades / learned policies; memory Layers 1,
+3, 4. (Layer 1 is effectively met — every turn rebuilds the agent from its YAML.)

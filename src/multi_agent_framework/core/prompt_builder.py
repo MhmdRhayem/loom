@@ -3,6 +3,22 @@ from typing import Any
 SYSTEM_REMINDER_TAG = "system-reminder"
 
 
+def message_text(message: Any) -> str:
+    """Coerce a model message's content to plain text (handles a string or content-block list)."""
+    content = getattr(message, "content", message)
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                parts.append(str(block.get("text", "")))
+            elif isinstance(block, str):
+                parts.append(block)
+        return "".join(parts).strip()
+    return str(content)
+
+
 def build_system_prompt(agent_definition: dict[str, Any], static_intro: str = "") -> str:
     """Compose an agent's system prompt from its declarative definition.
 
