@@ -9,6 +9,7 @@ class ConversationState(TypedDict):
     current_agent: str | None
     routing_scores: dict[str, float]
     routing_reason: str | None
+    query_category: str | None  # coarse intent label for scoring + Thompson routing
 
     agent_response: str | None
     tool_calls: list[dict[str, Any]]

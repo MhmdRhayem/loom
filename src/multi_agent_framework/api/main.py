@@ -70,6 +70,7 @@ def create_app(
             tool_provider,
             fallback_agent=fallback_agent,
             memory=db.memory if db is not None else None,
+            performance=db.performance if db is not None else None,
         )
 
         redis_store: RedisStore | None = RedisStore(settings.redis_url)

@@ -26,3 +26,20 @@ class ChatResponse(BaseModel):
 class HealthResponse(BaseModel):
     status: str
     components: dict[str, str]
+
+
+class FeedbackRequest(BaseModel):
+    conversation_id: str = Field(..., description="The conversation to rate.")
+    rating: str = Field(..., description="Thumbs rating: 'up' or 'down'.")
+    comment: str | None = Field(default=None, description="Optional free-text feedback.")
+
+
+class FeedbackResponse(BaseModel):
+    recorded: bool
+    agent: str | None = None
+
+
+class DreamResponse(BaseModel):
+    ran: bool
+    merged: int
+    pruned: int

@@ -66,7 +66,8 @@ curl -X POST localhost:8000/chat -H "content-type: application/json" \
 ## Status
 
 Wired: dynamic routing + agent execution, cross-session auto-memory, conversation/turn
-persistence, a sampled-critic evaluator with one bounded retry, and a multi-agent
-coordinator with guarded peer delegation + approval gates. Reserved (built, not yet
-called): agent performance, dream consolidation, most of Redis, and the evaluation policy
-stage. See [ARCHITECTURE.md](ARCHITECTURE.md#status) for the line-by-line list.
+persistence, a sampled-critic evaluator with one bounded retry, a multi-agent coordinator
+with guarded peer delegation + approval gates, and adaptive learning (per-agent scoring,
+Thompson routing off by default, Layer 4 memory consolidation). Reserved (built, not yet
+called): most of Redis and the evaluation policy stage. See
+[ARCHITECTURE.md](ARCHITECTURE.md#status) for the line-by-line list.

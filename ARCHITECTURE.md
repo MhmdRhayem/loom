@@ -58,6 +58,15 @@ a peer** mid-task via auto-generated `ask_<agent>` tools. Every nested run is bo
 without end), and high-risk agents (`requires_approval`) pass an automated approval review
 first. All in-process; cross-process workers and human-in-the-loop approval are not built.
 
+**Learning (Phase 6).** Each turn's reward — the evaluator verdict, or an explicit thumbs
+rating via `POST /feedback` — folds into an EMA score per `(agent, category)` in
+`agent_performance` (the router emits a coarse `category`). That data backs **Thompson
+sampling** (`learning/thompson.py`): with `ROUTING_STRATEGY=thompson` the router's pick is
+replaced by `Beta(successes, failures)` sampling per category (off by default; falls back to
+the LLM pick when there's no data). **Layer 4 "dreaming"** (`memory/consolidation.py`,
+`POST /dream`) periodically merges duplicate memories and prunes stale ones, logging each run
+to `dream_runs`. All of it is fail-soft and never blocks a turn.
+
 ## Agent YAML
 
 The filename stem **must** equal `name`. Validated at load time, so a bad roster fails at
@@ -82,16 +91,17 @@ boot, not on a request.
 `core/config.py` (`ModelTiers`) maps provider → tier → model ID; `Settings.model_id_for_tier()`
 resolves against `DEFAULT_PROVIDER`. So `DEFAULT_PROVIDER=openai` swaps the whole fleet.
 Keys: `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GOOGLE_API_KEY`. `ENABLE_AUTO_MEMORY=0`
-disables memory; `MAX_DELEGATION_DEPTH` / `DELEGATION_BUDGET` bound agent-to-agent calls.
-(Anthropic IDs are authoritative; OpenAI/Google IDs are post-cutoff placeholders — verify
-at integration.)
+disables memory; `MAX_DELEGATION_DEPTH` / `DELEGATION_BUDGET` bound agent-to-agent calls;
+`ROUTING_STRATEGY=thompson` turns on learned routing; `DREAM_MIN_MEMORIES` /
+`DREAM_INTERVAL_HOURS` gate consolidation. (Anthropic IDs are authoritative; OpenAI/Google
+IDs are post-cutoff placeholders — verify at integration.)
 
 ## File map
 
 | File | Responsibility | Status |
 |------|----------------|--------|
 | `core/state.py` | `ConversationState` — the one object every node reads/writes | wired |
-| `core/config.py` | `Settings` + `ModelTiers`; `model_id_for_tier`; `enable_auto_memory`; delegation limits | wired |
+| `core/config.py` | `Settings` + `ModelTiers`; tier resolver; feature flags; delegation + routing + dream knobs | wired |
 | `core/prompt_builder.py` | System prompt + `<system-reminder>` injection (memory hints) | wired |
 | `core/graph.py` | The pipeline; `build_graph(...)`, `build_initial_state(...)` | wired |
 | `agents/registry.py` | Load + validate YAML; lookup by name/capability; `router_menu()` | wired |
@@ -100,16 +110,20 @@ at integration.)
 | `agents/delegation.py` | Guarded `run_agent` + `ask_<agent>` peer-delegation tools (depth/budget/approval) | wired |
 | `agents/coordinator.py` | Multi-part decompose → parallel → synthesize; `review_action` approval guardrail | wired |
 | `api/main.py` | `create_app(...)` factory + lifespan (opens DB/Redis fail-soft, builds graph) | wired |
-| `api/routes.py` | `POST /chat` (records each turn, fail-soft) + `GET /health` | wired |
+| `api/routes.py` | `POST /chat` (records + scores each turn) + `/feedback` + `/dream` + `GET /health` | wired |
 | `api/models.py` | Pydantic `ChatRequest`/`ChatResponse`/`HealthResponse` (incl. `owner_id`) | wired |
 | `memory/auto_memory.py` | Layer 2: `load_hints` (read) + `extract_and_upsert` (write, dedupe by topic); fail-silent | wired |
 | `evaluation/structural.py` | Stage 1: deterministic checks (empty / too short) | wired |
 | `evaluation/critic.py` | Stage 3: sampled LLM critic against the agent's `eval_rubric`; fail-silent | wired |
+| `learning/signals.py` | Reward from the eval verdict or explicit feedback (pure) | wired |
+| `learning/scoring.py` | EMA score per `(agent, category)` in `agent_performance`; fail-silent | wired |
+| `learning/thompson.py` | `Beta` sampling over agents per category (off by default) | wired |
+| `memory/consolidation.py` | Layer 4 "dreaming": merge/prune memories on a trigger; logs `dream_runs` | wired |
 | `storage/base.py` | `Database` — async pool + repositories; `create_all()` (Alembic-free) | wired — opened at boot |
 | `storage/models.py` | ORM tables for all phases | schema only |
 | `storage/repositories/memory.py` | `auto_memory` CRUD + topic upsert | **wired** (Layer 2) |
 | `storage/repositories/conversations.py` | conversation + turn CRUD; `record_turn` per request | **wired** |
-| `storage/repositories/{performance,dreams}.py` | EMA scores / consolidation CRUD | reserved — not yet called |
+| `storage/repositories/{performance,dreams}.py` | EMA scores / consolidation-run log | **wired** (Phase 6) |
 | `storage/redis_store.py` | state/routing cache, feature flags | partial — opened + `/health` ping; rest reserved |
 | `_platform.py` | Forces the Windows selector event loop (async psycopg) | wired |
 | `scripts/init_db.py` | Creates the schema from the models, idempotent | wired |
@@ -143,17 +157,18 @@ Run with `uvicorn --env-file .env myapp.app:app`. Nothing in the framework chang
 **Wired:** Phase 1 foundation, Phase 2 dynamic routing + agent execution, Phase 3 Layer 2
 cross-session auto-memory, conversation/turn persistence (every `/chat` turn, fail-soft),
 Phase 4 evaluation (structural + sampled critic + one bounded retry), and Phase 5
-multi-agent (coordinator decompose/parallel/synthesize + guarded peer delegation + approval
-gates, all in-process). Phases 2-4 verified on a live provider; Phase 5's guards +
-orchestration verified deterministically offline.
+multi-agent (coordinator + guarded peer delegation + approval gates, in-process), and Phase 6
+adaptive learning (per-`(agent,category)` EMA scoring from eval + `/feedback`, Thompson
+routing off by default, and Layer 4 memory "dreaming"). Phases 2-4 verified on a live
+provider; Phases 5-6 guards/scoring/orchestration verified deterministically offline.
 
-**Reserved** (present, not yet on the request path): `agent_performance`, `dream_runs`,
-most of `redis_store`, and the evaluation **policy** stage. The turn's `tokens_used` /
-`cost` / `cache_hit` columns are written null until LLM-usage callbacks land. A few
-state/model fields (`session_summary`, `compaction_count`, `execution_model`) back
-deferred features and are currently unused.
+**Reserved** (present, not yet on the request path): most of `redis_store` and the
+evaluation **policy** stage. The turn's `tokens_used` / `cost` / `cache_hit` columns are
+written null until LLM-usage callbacks land. A few state/model fields (`session_summary`,
+`compaction_count`, `execution_model`) back deferred features and are currently unused.
 
 **Deferred by design:** an agent base class; the Fork/Teammate/Worktree models +
 cross-process/Redis-mailbox workers + human-in-the-loop approval (the in-process coordinator
-covers the multi-agent need); router fan-out / cascades / learned policies; memory Layers 1,
-3, 4. (Layer 1 is effectively met — every turn rebuilds the agent from its YAML.)
+covers the multi-agent need); router fan-out / cascades; memory **Layer 3** (context
+compaction). Layer 1 is effectively met (every turn rebuilds the agent from its YAML);
+Layers 2 and 4 are built.

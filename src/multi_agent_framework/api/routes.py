@@ -8,8 +8,18 @@ import uuid
 
 from fastapi import APIRouter, Request
 
-from multi_agent_framework.api.models import ChatRequest, ChatResponse, HealthResponse
+from multi_agent_framework.api.models import (
+    ChatRequest,
+    ChatResponse,
+    DreamResponse,
+    FeedbackRequest,
+    FeedbackResponse,
+    HealthResponse,
+)
 from multi_agent_framework.core.graph import build_initial_state
+from multi_agent_framework.learning.scoring import record_score
+from multi_agent_framework.learning.signals import reward_from_eval, reward_from_feedback
+from multi_agent_framework.memory.consolidation import consolidate, should_dream
 
 logger = logging.getLogger(__name__)
 
@@ -96,3 +106,38 @@ async def _record_turn(request: Request, payload: ChatRequest, result: dict, lat
         )
     except Exception:  # noqa: BLE001 - persistence is best-effort
         logger.warning("turn persistence failed", exc_info=True)
+
+    # Phase 6 learning signal: fold the eval verdict into the agent's per-category EMA score.
+    if agent:
+        await record_score(db.performance, agent, result.get("query_category") or "general", reward_from_eval(eval_result))
+
+
+@router.post("/feedback", response_model=FeedbackResponse)
+async def feedback(request: Request, payload: FeedbackRequest) -> FeedbackResponse:
+    """Record explicit thumbs feedback for a conversation's last turn (Phase 6 signal). Fail-soft."""
+    db = getattr(request.app.state, "db", None)
+    reward = reward_from_feedback(payload.rating)
+    if db is None or reward is None:
+        return FeedbackResponse(recorded=False, agent=None)
+    try:
+        turns = await db.conversations.get_turns(uuid.UUID(str(payload.conversation_id)))
+    except (ValueError, TypeError):
+        return FeedbackResponse(recorded=False, agent=None)
+    agent = turns[-1].agent_name if turns else None
+    if not agent:
+        return FeedbackResponse(recorded=False, agent=None)
+    await record_score(db.performance, agent, "overall", reward)
+    return FeedbackResponse(recorded=True, agent=agent)
+
+
+@router.post("/dream", response_model=DreamResponse)
+async def dream(request: Request, owner_id: str, force: bool = False) -> DreamResponse:
+    """Run memory consolidation ("dreaming") for an owner — when due, or force=true (Layer 4)."""
+    db = getattr(request.app.state, "db", None)
+    settings = getattr(request.app.state, "settings", None)
+    if db is None or settings is None:
+        return DreamResponse(ran=False, merged=0, pruned=0)
+    if not force and not await should_dream(db.memory, db.dreams, owner_id, settings):
+        return DreamResponse(ran=False, merged=0, pruned=0)
+    result = await consolidate(db.memory, db.dreams, owner_id, settings)
+    return DreamResponse(ran=True, merged=result["merged"], pruned=result["pruned"])

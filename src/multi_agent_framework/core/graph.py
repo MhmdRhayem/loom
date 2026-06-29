@@ -30,10 +30,12 @@ from multi_agent_framework.core.config import Settings
 from multi_agent_framework.core.state import ConversationState
 from multi_agent_framework.evaluation.critic import critique
 from multi_agent_framework.evaluation.structural import check_structural
+from multi_agent_framework.learning.thompson import pick_agent
 from multi_agent_framework.memory.auto_memory import extract_and_upsert, load_hints
 
 if TYPE_CHECKING:
     from multi_agent_framework.storage.repositories.memory import MemoryRepository
+    from multi_agent_framework.storage.repositories.performance import PerformanceRepository
 
 ToolProvider = Callable[[Sequence[str]], Sequence[Any]]
 
@@ -45,6 +47,7 @@ def build_graph(
     *,
     fallback_agent: str | None = None,
     memory: "MemoryRepository | None" = None,
+    performance: "PerformanceRepository | None" = None,
 ):
     """Compile and return the conversation graph wired to ``registry`` + ``settings``."""
 
@@ -67,13 +70,22 @@ def build_graph(
         return {"auto_memory_hints": await load_hints(memory, owner_id)}
 
     async def route(state: ConversationState) -> dict[str, Any]:
-        """Pick the agent via the LLM router; flag the turn multi-part for the coordinator."""
+        """Pick the agent via the LLM router (or the learned Thompson policy); set the category."""
         decision = await route_turn(state["messages"], registry, settings, fallback_agent=fallback_agent)
+        agent = decision["agent"]
+        category = decision.get("category") or "general"
+        reason = decision["reason"]
+        # Optional learned routing: override the LLM pick with the bandit when we have data.
+        if settings.routing_strategy == "thompson" and performance is not None and not decision.get("multipart"):
+            picked = await pick_agent(performance, registry.names(), category)
+            if picked and picked != agent:
+                agent, reason = picked, f"thompson policy for '{category}' (LLM suggested {agent}). {reason}"
         return {
-            "current_agent": decision["agent"],
-            "routing_scores": {decision["agent"]: decision["confidence"]},
-            "routing_reason": decision["reason"],
+            "current_agent": agent,
+            "routing_scores": {agent: decision["confidence"]},
+            "routing_reason": reason,
             "coordinator_mode": bool(decision.get("multipart")),
+            "query_category": category,
         }
 
     async def execute_agent(state: ConversationState) -> dict[str, Any]:
@@ -184,6 +196,7 @@ def build_initial_state(message: str, conversation_id: str | None = None, owner_
         current_agent=None,
         routing_scores={},
         routing_reason=None,
+        query_category=None,
         agent_response=None,
         tool_calls=[],
         eval_result=None,

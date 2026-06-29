@@ -35,6 +35,8 @@ _INSTRUCTIONS = (
     "is ambiguous or no agent fits well.\n"
     "- Set multipart=true ONLY if the request clearly needs two or more different agents "
     "(e.g. two unrelated tasks in one message); otherwise false. Still name the best primary agent.\n"
+    "- Set category to a short, reusable lowercase label for the request's intent (e.g. 'order status', "
+    "'product search', 'returns') so similar requests share a label.\n"
     "- Keep the reason to one sentence."
 )
 
@@ -46,6 +48,7 @@ class RouterDecision(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0, description="0-1 confidence in the choice.")
     reason: str = Field(description="One-sentence justification.")
     multipart: bool = Field(default=False, description="True only if the request needs two or more different agents.")
+    category: str = Field(default="general", description="Short lowercase intent label, e.g. 'order status', 'returns'.")
 
 
 def _format_menu(registry: AgentRegistry) -> str:
@@ -79,6 +82,7 @@ async def route_turn(
 
     out = _resolve(decision, registry, fallback_agent=fallback_agent, min_confidence=min_confidence)
     out["multipart"] = decision.multipart
+    out["category"] = (decision.category or "general").strip().lower() or "general"
     return out
 
 
