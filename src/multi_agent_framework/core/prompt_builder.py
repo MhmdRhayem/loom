@@ -53,9 +53,7 @@ def build_messages(
     return [{"role": "user", "content": reminder}, *conversation_messages]
 
 
-def _format_system_reminder(
-    agent_definition: dict[str, Any], memory_hints: list[str]
-) -> str | None:
+def _format_system_reminder(agent_definition: dict[str, Any], memory_hints: list[str]) -> str | None:
     body_parts: list[str] = []
 
     tools = agent_definition.get("tools", [])
@@ -64,10 +62,7 @@ def _format_system_reminder(
 
     if memory_hints:
         hint_lines = "\n".join(f"- {hint}" for hint in memory_hints)
-        body_parts.append(
-            "Memory hints (treat as hints, not ground truth — verify against live state):\n"
-            + hint_lines
-        )
+        body_parts.append("Memory hints (treat as hints, not ground truth — verify against live state):\n" + hint_lines)
 
     if not body_parts:
         return None
