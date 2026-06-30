@@ -95,7 +95,7 @@ async def run_agent(
     tools = list(tool_provider(defn.tools))
     # Offer peer tools whenever we can still go one level deeper. Any agent can ask any peer.
     if depth + 1 < settings.max_delegation_depth:
-        tools = tools + _peer_tools(registry, settings, tool_provider, depth + 1, exclude=name)
+        tools = tools + _ask_peer_tools(registry, settings, tool_provider, depth + 1, exclude=name)
 
     agent = build_agent(defn, settings, tools)
     base = [{"role": "user", "content": query}]
@@ -109,7 +109,7 @@ async def run_agent(
         return AgentRun(f"({name} could not complete the request)")
 
 
-def _peer_tools(
+def _ask_peer_tools(
     registry: AgentRegistry,
     settings: Settings,
     tool_provider: ToolProvider,
