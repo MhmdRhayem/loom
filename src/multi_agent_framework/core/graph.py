@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Any
 from langchain.chat_models import init_chat_model
 from langgraph.graph import END, START, StateGraph
 
-from multi_agent_framework.agents.delegation import run_agent
+from multi_agent_framework.agents.factory import run_agent
 from multi_agent_framework.agents.registry import AgentRegistry
 from multi_agent_framework.agents.router import route_turn
 from multi_agent_framework.core.config import Settings

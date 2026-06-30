@@ -51,7 +51,7 @@ at most `max_retries` times (default 2) with feedback, then passes through flagg
 never blocks the user.
 
 **Multi-agent (Phase 5).** The router can pick **more than one agent** for a turn; all run
-in parallel through one runner (`agents/delegation.py`, `run_agent`) and their answers are
+in parallel through one runner (`agents/factory.py`, `run_agent`) and their answers are
 synthesized into a single reply (`_synthesize` in `core/graph.py`). Separately, any agent can
 **call a peer** mid-task via auto-generated `ask_<agent>` tools — a peer call is just a tool
 call that re-enters `run_agent` one level deeper. The only guard is `max_delegation_depth`,
@@ -111,9 +111,8 @@ integration.)
 | `core/prompt_builder.py` | System prompt + `<system-reminder>` injection (memory hints) | wired |
 | `core/graph.py` | The pipeline; `build_graph(...)`, `build_initial_state(...)` | wired |
 | `agents/registry.py` | Load + validate YAML; lookup by name/capability; `router_menu()` | wired |
-| `agents/factory.py` | One `AgentDefinition` → live LangChain `create_agent` (tier→model + prompt + tools) | wired |
+| `agents/factory.py` | `build_agent` (`AgentDefinition` → live `create_agent`) + `run_agent` (run it in-process) + `ask_<agent>` peer tools (depth-bounded) | wired |
 | `agents/router.py` | Fast-tier routing call; pure `_validate()` fallback policy; returns one or more agents | wired |
-| `agents/delegation.py` | `run_agent` + `ask_<agent>` peer tools (a peer call is just a tool call; depth-bounded) | wired |
 | `api/main.py` | `create_app(...)` factory + lifespan (opens DB/Redis fail-soft, builds graph) | wired |
 | `api/routes.py` | `POST /chat` (records + scores each turn) + `/feedback` + `/dream` + `GET /health` | wired |
 | `api/models.py` | Pydantic `ChatRequest`/`ChatResponse`/`HealthResponse` (incl. `owner_id`) | wired |
