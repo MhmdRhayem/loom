@@ -1,15 +1,12 @@
-"""LLM router: pick the single best agent for a turn.
+"""LLM router: pick the best agent(s) for a turn.
 
 The router shows the model the registry's compact agent menu (name, description,
 capabilities) and the recent conversation, then asks for a structured decision:
-which agent, how confident, and why. Two post-checks keep it safe:
+which agents (one or more), how confident, and why. Post-checks keep it safe:
 
-* if the model names an agent that isn't in the registry, fall back; and
-* if confidence is below ``min_confidence`` and a ``fallback_agent`` is configured,
-  route there instead (the demo points this at its catch-all/clarifier agent).
-
-Fan-out, cascades, and learned routing policies are deliberately out of scope here
-(Phase 6). This is the simplest router that routes correctly.
+* unknown agent names are dropped; and
+* if no valid agents remain (or confidence is too low), fall back to
+  ``fallback_agent`` when configured.
 """
 
 from __future__ import annotations
@@ -22,21 +19,18 @@ from pydantic import BaseModel, Field
 from multi_agent_framework.agents.registry import AgentRegistry
 from multi_agent_framework.core.config import Settings
 
-# How many trailing messages to show the router. Routing only needs the recent ask,
-# not the whole history — keeps the call cheap and on the fast tier.
 _RECENT_WINDOW = 6
 _DEFAULT_MIN_CONFIDENCE = 0.5
 
 _INSTRUCTIONS = (
-    "You are the router for a multi-agent assistant. Choose the SINGLE best agent to "
+    "You are the router for a multi-agent assistant. Choose one or more agents to "
     "handle the user's latest message, based on each agent's description and capabilities.\n"
-    "- Use the agent name exactly as written in the menu.\n"
-    "- Give a confidence in [0, 1]: high when one agent clearly fits, low when the request "
-    "is ambiguous or no agent fits well.\n"
-    "- Set multipart=true ONLY if the request clearly needs two or more different agents "
-    "(e.g. two unrelated tasks in one message); otherwise false. Still name the best primary agent.\n"
-    "- Set category to a short, reusable lowercase label for the request's intent (e.g. 'order status', "
-    "'product search', 'returns') so similar requests share a label.\n"
+    "- Use exact agent names from the menu.\n"
+    "- Choose multiple agents only when the request genuinely spans different domains "
+    "(e.g. product info + order status in one message). Otherwise pick one.\n"
+    "- Give a confidence in [0, 1]: high when the choice is clear, low when ambiguous.\n"
+    "- Set category to a short, reusable lowercase label for the request's intent "
+    "(e.g. 'order status', 'product search', 'returns').\n"
     "- Keep the reason to one sentence."
 )
 
@@ -44,11 +38,10 @@ _INSTRUCTIONS = (
 class RouterDecision(BaseModel):
     """Structured routing decision returned by the model."""
 
-    agent: str = Field(description="Exact name of the single best agent from the menu.")
+    agents: list[str] = Field(description="One or more exact agent names from the menu, ordered by relevance.")
     confidence: float = Field(ge=0.0, le=1.0, description="0-1 confidence in the choice.")
     reason: str = Field(description="One-sentence justification.")
-    multipart: bool = Field(default=False, description="True only if the request needs two or more different agents.")
-    category: str = Field(default="general", description="Short lowercase intent label, e.g. 'order status', 'returns'.")
+    category: str = Field(default="general", description="Short lowercase intent label.")
 
 
 def _format_menu(registry: AgentRegistry) -> str:
@@ -73,42 +66,39 @@ async def route_turn(
     fallback_agent: str | None = None,
     min_confidence: float = _DEFAULT_MIN_CONFIDENCE,
 ) -> dict[str, Any]:
-    """Pick an agent for this turn. Returns ``{agent, confidence, reason}``."""
+    """Pick agents for this turn. Returns ``{agents, confidence, reason, category}``."""
     model = init_chat_model(
         settings.model_id_for_tier("fast"),
         model_provider=settings.default_provider,
     )
     decision: RouterDecision = await model.with_structured_output(RouterDecision).ainvoke(_build_prompt(registry, messages))
+    agents = _validate(decision, registry, fallback_agent=fallback_agent, min_confidence=min_confidence)
+    return {
+        "agents": agents,
+        "confidence": decision.confidence,
+        "reason": decision.reason,
+        "category": (decision.category or "general").strip().lower() or "general",
+    }
 
-    out = _resolve(decision, registry, fallback_agent=fallback_agent, min_confidence=min_confidence)
-    out["multipart"] = decision.multipart
-    out["category"] = (decision.category or "general").strip().lower() or "general"
-    return out
 
-
-def _resolve(
+def _validate(
     decision: RouterDecision,
     registry: AgentRegistry,
     *,
     fallback_agent: str | None = None,
     min_confidence: float = _DEFAULT_MIN_CONFIDENCE,
-) -> dict[str, Any]:
-    """Apply the safety post-checks to a raw model decision.
+) -> list[str]:
+    """Return a validated list of agent names, applying fallback rules.
 
-    Pure (no I/O), so the routing *policy* is unit-testable without an LLM call:
-    unknown agent -> fallback (if usable); confidence below ``min_confidence`` ->
-    fallback; otherwise keep the model's choice.
+    Pure (no I/O), so routing policy is unit-testable without an LLM call.
     """
-    agent, confidence, reason = decision.agent, decision.confidence, decision.reason
     has_fallback = bool(fallback_agent) and fallback_agent in registry
+    valid = [a for a in decision.agents if a in registry]
 
-    if agent not in registry:
-        if has_fallback:
-            return {"agent": fallback_agent, "confidence": confidence, "reason": f"router named unknown agent '{agent}'; using fallback. ({reason})"}
-        # No usable fallback: surface the raw decision so the failure is visible.
-        return {"agent": agent, "confidence": confidence, "reason": reason}
+    if not valid:
+        return [fallback_agent] if has_fallback else list(decision.agents)
 
-    if has_fallback and confidence < min_confidence:
-        return {"agent": fallback_agent, "confidence": confidence, "reason": f"low confidence {confidence:.2f} < {min_confidence:.2f} for '{agent}'; routing to fallback. ({reason})"}
+    if has_fallback and decision.confidence < min_confidence and len(valid) == 1:
+        return [fallback_agent]
 
-    return {"agent": agent, "confidence": confidence, "reason": reason}
+    return valid

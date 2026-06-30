@@ -7,9 +7,10 @@ you build your own assistant by filling **three seams**. A 7-agent e-commerce de
 as a worked example. Depth: **[ARCHITECTURE.md](ARCHITECTURE.md)**.
 
 One `/chat` turn runs a LangGraph pipeline:
-`load_memory → route → (execute_agent | coordinate) → evaluate → save_memory`, with a
-bounded retry on a failing evaluation. Multi-part requests fan out to a coordinator, and
-any agent can delegate to a peer mid-task.
+`load_memory → route → execute_agents → evaluate → save_memory`, with a
+bounded retry on a failing evaluation. The router can pick more than one agent; they run in
+parallel and their answers are synthesized into one reply. Any agent can also call a peer
+mid-task via an auto-generated `ask_<name>` tool.
 
 ## The three seams (how you reuse it)
 
@@ -66,8 +67,9 @@ curl -X POST localhost:8000/chat -H "content-type: application/json" \
 ## Status
 
 Wired: dynamic routing + agent execution, cross-session auto-memory, conversation/turn
-persistence, a sampled-critic evaluator with one bounded retry, a multi-agent coordinator
-with guarded peer delegation + approval gates, adaptive learning (per-(agent, category)
+persistence, a sampled-critic evaluator with one bounded retry, multi-agent routing
+(one-or-more agents per turn, run in parallel + synthesized) with peer delegation (agents
+call each other via `ask_<name>` tools), adaptive learning (per-(agent, category)
 performance scoring, Layer 4 memory consolidation), and feature flags (`ENABLE_*`
 per subsystem). Reserved (built, not yet called): most of Redis and the evaluation policy
 stage. See

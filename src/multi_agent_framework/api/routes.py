@@ -69,7 +69,7 @@ async def chat(request: Request, payload: ChatRequest) -> ChatResponse:
 
     return ChatResponse(
         conversation_id=result["conversation_id"],
-        agent=result.get("current_agent"),
+        agent=", ".join(result.get("current_agents") or []),
         response=result.get("agent_response"),
         eval=result.get("eval_result"),
     )
@@ -85,10 +85,10 @@ async def _record_turn(request: Request, payload: ChatRequest, result: dict, lat
     except (ValueError, TypeError):
         return  # a non-UUID (custom client) conversation id -> skip persistence
 
-    agent = result.get("current_agent")
+    agents = result.get("current_agents") or []
+    agent = agents[0] if agents else None
     registry = getattr(request.app.state, "registry", None)
     model_tier = registry.get(agent).model if registry and agent and agent in registry else None
-    routing_scores = result.get("routing_scores") or {}
     eval_result = result.get("eval_result") or {}
 
     try:
@@ -97,7 +97,7 @@ async def _record_turn(request: Request, payload: ChatRequest, result: dict, lat
             owner_id=payload.owner_id or "anonymous",
             user_message=payload.message,
             agent_name=agent,
-            routing_confidence=routing_scores.get(agent),
+            routing_confidence=result.get("routing_confidence"),
             agent_response=result.get("agent_response"),
             eval_score=eval_result.get("score"),
             retry_count=result.get("retry_count", 0) or 0,

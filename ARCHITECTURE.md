@@ -27,36 +27,36 @@ One `/chat` request runs a fixed linear graph; `build_graph` is dependency-injec
 `ConversationState` TypedDict (`core/state.py`) is passed between nodes.
 
 ```
-load_memory → route → (execute_agent | coordinate) → evaluate → save_memory → END
-                            ^                              |
-                            +------------- revise ---------+   (failing, retryable single-agent eval)
+load_memory → route → execute_agents → evaluate → save_memory → END
+                            ^                |
+                            +---- revise ----+   (failing, retryable single-agent eval)
 ```
 
 | Node | Does | Status |
 |------|------|--------|
 | `load_memory`   | Read owner's stored facts → `auto_memory_hints` | **wired** |
-| `route`         | Fast-tier LLM picks an agent → `{agent, confidence, reason}`; `_resolve()` applies fallback policy | **wired** |
-| `execute_agent` | Run the routed agent (tier→model + prompt + tools + memory hints); it may delegate to peers (guarded) | **wired** |
-| `coordinate`    | Multi-part path: decompose the request → run agents in parallel → synthesize one answer | **wired** |
+| `route`         | Fast-tier LLM picks one or more agents → `{agents, confidence, reason}`; `_validate()` applies fallback policy | **wired** |
+| `execute_agents`| Run the routed agent(s) in parallel (tier→model + prompt + tools + memory hints); synthesize if >1; each may delegate to peers (depth-bounded) | **wired** |
 | `evaluate`      | Structural check + a *sampled* LLM critic (per agent `judge_sample_rate`) → `{pass, score, feedback}` | **wired** |
 | `revise`        | On a failing, retryable eval: bump `retry_count`, feed the critic's feedback back to the agent | **wired** |
 | `save_memory`   | Extract durable facts from the turn, upsert by topic | **wired** |
 
 Both memory nodes no-op unless a `memory` repo + `enable_auto_memory` + an `owner_id` are
 all present, and are **fail-silent** — a model or store error never breaks the turn.
-Routing safety (`agents/router.py`, pure `_resolve`): unknown agent → fallback;
-confidence `< 0.5` → fallback; otherwise keep the model's choice.
+Routing safety (`agents/router.py`, pure `_validate`): unknown agent names are dropped;
+if none remain (or a lone pick is below `0.5` confidence) → fallback; otherwise keep the
+model's chosen agent(s).
 Evaluation is fail-soft and bounded: the critic is sampled (cost), a failing turn retries
 at most `max_retries` times (default 2) with feedback, then passes through flagged — it
 never blocks the user.
 
-**Multi-agent (Phase 5).** Two patterns share one guarded runner (`agents/delegation.py`,
-`run_agent`): the **coordinator** (`agents/coordinator.py`) handles a multi-part request
-top-down (decompose → run agents in parallel → synthesize), and any agent can **delegate to
-a peer** mid-task via auto-generated `ask_<agent>` tools. Every nested run is bounded by
-`max_delegation_depth` and a per-turn `delegation_budget` (so calls can't loop or fan out
-without end), and high-risk agents (`requires_approval`) pass an automated approval review
-first. All in-process; cross-process workers and human-in-the-loop approval are not built.
+**Multi-agent (Phase 5).** The router can pick **more than one agent** for a turn; all run
+in parallel through one runner (`agents/delegation.py`, `run_agent`) and their answers are
+synthesized into a single reply (`_synthesize` in `core/graph.py`). Separately, any agent can
+**call a peer** mid-task via auto-generated `ask_<agent>` tools — a peer call is just a tool
+call that re-enters `run_agent` one level deeper. The only guard is `max_delegation_depth`,
+threaded as a plain argument so nested calls can't recurse without bound (no shared context,
+budget, or approval gate). All in-process; cross-process workers are not built.
 
 **Learning (Phase 6).** Each turn's reward — the evaluator verdict, or an explicit thumbs
 rating via `POST /feedback` — folds into an EMA score per `(agent, category)` in
@@ -90,7 +90,6 @@ boot, not on a request.
 | `eval_rubric` | no | Criteria the LLM critic judges against (Phase 4) |
 | `judge_sample_rate` | no | Fraction of turns judged (risk weight; default 1.0) |
 | `memory_scope` | no | Parsed, not yet acted on |
-| `requires_approval` | no | If true, the coordinator reviews before this agent acts (Phase 5) |
 
 ## Provider swap
 
@@ -98,8 +97,8 @@ boot, not on a request.
 resolves against `DEFAULT_PROVIDER`. So `DEFAULT_PROVIDER=openai` swaps the whole fleet.
 Keys: `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GOOGLE_API_KEY`. **Feature flags** gate each
 subsystem (all default on; flip for ablation): `ENABLE_MEMORY` / `ENABLE_EVALUATION` /
-`ENABLE_LEARNING` / `ENABLE_COORDINATOR` / `ENABLE_DREAMING`. Tuning: `MAX_DELEGATION_DEPTH` /
-`DELEGATION_BUDGET`, `DREAM_MIN_MEMORIES` / `DREAM_INTERVAL_HOURS`.
+`ENABLE_LEARNING` / `ENABLE_DREAMING`. Tuning: `MAX_DELEGATION_DEPTH`,
+`DREAM_MIN_MEMORIES` / `DREAM_INTERVAL_HOURS`.
 (Anthropic IDs are authoritative; OpenAI/Google IDs are post-cutoff placeholders — verify at
 integration.)
 
@@ -113,9 +112,8 @@ integration.)
 | `core/graph.py` | The pipeline; `build_graph(...)`, `build_initial_state(...)` | wired |
 | `agents/registry.py` | Load + validate YAML; lookup by name/capability; `router_menu()` | wired |
 | `agents/factory.py` | One `AgentDefinition` → live LangChain `create_agent` (tier→model + prompt + tools) | wired |
-| `agents/router.py` | Fast-tier routing call; pure `_resolve()` fallback policy + `multipart` flag | wired |
-| `agents/delegation.py` | Guarded `run_agent` + `ask_<agent>` peer-delegation tools (depth/budget/approval) | wired |
-| `agents/coordinator.py` | Multi-part decompose → parallel → synthesize; `review_action` approval guardrail | wired |
+| `agents/router.py` | Fast-tier routing call; pure `_validate()` fallback policy; returns one or more agents | wired |
+| `agents/delegation.py` | `run_agent` + `ask_<agent>` peer tools (a peer call is just a tool call; depth-bounded) | wired |
 | `api/main.py` | `create_app(...)` factory + lifespan (opens DB/Redis fail-soft, builds graph) | wired |
 | `api/routes.py` | `POST /chat` (records + scores each turn) + `/feedback` + `/dream` + `GET /health` | wired |
 | `api/models.py` | Pydantic `ChatRequest`/`ChatResponse`/`HealthResponse` (incl. `owner_id`) | wired |
@@ -153,7 +151,7 @@ capabilities: [order_status, shipping_tracking]
 tools: [order_api]            # names resolved by your get_tools
 model: fast                   # tier: fast | standard | deep
 fallback_agent: support_concierge   # a known agent, or human_handoff
-# optional: max_tokens, eval_rubric, judge_sample_rate, memory_scope, requires_approval
+# optional: max_tokens, eval_rubric, judge_sample_rate, memory_scope
 ```
 
 Run with `uvicorn --env-file .env myapp.app:app`. Nothing in the framework changes.
@@ -163,11 +161,12 @@ Run with `uvicorn --env-file .env myapp.app:app`. Nothing in the framework chang
 **Wired:** Phase 1 foundation, Phase 2 dynamic routing + agent execution, Phase 3 Layer 2
 cross-session auto-memory, conversation/turn persistence (every `/chat` turn, fail-soft),
 Phase 4 evaluation (structural + sampled critic + one bounded retry), and Phase 5
-multi-agent (coordinator + guarded peer delegation + approval gates, in-process), Phase 6
+multi-agent (router picks one or more agents → parallel run → synthesis, plus depth-bounded
+peer delegation, in-process), Phase 6
 adaptive learning (per-`(agent,category)` EMA scoring from eval + `/feedback`, and Layer 4
 memory "dreaming"), and Phase 7 fail-silent + feature
 flags (each subsystem gated by an `ENABLE_*` flag). Verified end-to-end on a live provider:
-routing, single + coordinator multi-agent, memory, evaluation, persistence, scoring, dreaming.
+routing, single + multi-agent, memory, evaluation, persistence, scoring, dreaming.
 
 **Reserved** (present, not yet on the request path): most of `redis_store` and the
 evaluation **policy** stage. The turn's `tokens_used` / `cost` / `cache_hit` columns are
@@ -175,7 +174,7 @@ written null until LLM-usage callbacks land. A few state/model fields (`session_
 `compaction_count`, `execution_model`) back deferred features and are currently unused.
 
 **Deferred by design:** an agent base class; the Fork/Teammate/Worktree models +
-cross-process/Redis-mailbox workers + human-in-the-loop approval (the in-process coordinator
-covers the multi-agent need); router fan-out / cascades; memory **Layer 3** (context
+cross-process/Redis-mailbox workers + human-in-the-loop approval (in-process multi-agent
+covers the need); cascades; memory **Layer 3** (context
 compaction). Layer 1 is effectively met (every turn rebuilds the agent from its YAML);
 Layers 2 and 4 are built.

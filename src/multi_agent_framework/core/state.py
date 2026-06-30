@@ -6,8 +6,8 @@ class ConversationState(TypedDict):
     conversation_id: str
     owner_id: str | None  # memory/persistence scope; None disables auto-memory for the turn
 
-    current_agent: str | None
-    routing_scores: dict[str, float]
+    current_agents: list[str]       # agents chosen by the router for this turn (one or more)
+    routing_confidence: float | None  # overall router confidence for this turn
     routing_reason: str | None
     query_category: str | None  # coarse intent label for performance scoring
 
@@ -22,9 +22,5 @@ class ConversationState(TypedDict):
     session_summary: str | None
     auto_memory_hints: list[str]
     memory_writes: list[dict[str, Any]]
-
-    coordinator_mode: bool
-    spawned_agents: list[str]
-    approval_queue: list[dict[str, Any]]
 
     metadata: dict[str, Any]

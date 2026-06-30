@@ -1,32 +1,35 @@
 """The conversation pipeline as a LangGraph.
 
-    load_memory → route → (execute_agent | coordinate) → evaluate → save_memory → END
-                               ^                |
-                               +----- revise ---+   (failing, retryable single-agent eval)
+    load_memory → route → execute_agents → evaluate → save_memory → END
+                               ^                 |
+                               +---- revise -----+   (failing, retryable single-agent eval)
 
-``route`` picks one agent, or flags the turn multi-part → ``coordinate`` (decompose → run
-agents in parallel → synthesize). Any agent can also delegate to a peer mid-task; every
-agent run — single, worker, or peer — goes through the guarded ``run_agent``, sharing the
-turn's depth/budget/approval limits. ``evaluate`` is a structural check + a sampled LLM
-critic; a failing single-agent turn retries once with feedback. Memory load/save wrap it.
+``route`` picks one or more agents. All run in parallel via ``run_agent``; if more
+than one, their answers are synthesized into a single reply. Any agent can also call
+a peer mid-task via an ``ask_<name>`` tool — every agent run goes through
+``run_agent``, bounded by the turn's delegation depth. ``evaluate`` is a structural
+check + a sampled LLM critic; a failing single-agent turn retries once with feedback.
+Memory load/save wrap it.
 
 Dependency-injected: build_graph(registry, settings, tool_provider, fallback_agent, memory).
 """
+
 from __future__ import annotations
 
+import asyncio
 import random
 import uuid
 from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Any
 
+from langchain.chat_models import init_chat_model
 from langgraph.graph import END, START, StateGraph
 
-from multi_agent_framework.agents.coordinator import coordinate as run_coordinator
-from multi_agent_framework.agents.coordinator import review_action
-from multi_agent_framework.agents.delegation import DelegationContext, run_agent
+from multi_agent_framework.agents.delegation import run_agent
 from multi_agent_framework.agents.registry import AgentRegistry
 from multi_agent_framework.agents.router import route_turn
 from multi_agent_framework.core.config import Settings
+from multi_agent_framework.core.prompt_builder import message_text
 from multi_agent_framework.core.state import ConversationState
 from multi_agent_framework.evaluation.critic import critique
 from multi_agent_framework.evaluation.structural import check_structural
@@ -50,15 +53,6 @@ def build_graph(
 
     auto_memory_on = settings.enable_memory and memory is not None
 
-    def _delegation_context() -> DelegationContext:
-        """A fresh per-turn context carrying the delegation limits + the approval guardrail."""
-        return DelegationContext(
-            registry=registry,
-            settings=settings,
-            tool_provider=tool_provider,
-            approver=lambda name, query: review_action(name, query, settings),
-        )
-
     async def load_memory(state: ConversationState) -> dict[str, Any]:
         """Layer 2 (read): surface the owner's stored memories as hints. Fail-silent."""
         owner_id = state.get("owner_id")
@@ -67,23 +61,19 @@ def build_graph(
         return {"auto_memory_hints": await load_hints(memory, owner_id)}
 
     async def route(state: ConversationState) -> dict[str, Any]:
-        """Pick the agent via the LLM router; set the query category."""
+        """Pick one or more agents via the LLM router; set the query category."""
         decision = await route_turn(state["messages"], registry, settings, fallback_agent=fallback_agent)
-        agent = decision["agent"]
-        category = decision.get("category") or "general"
-        reason = decision["reason"]
-        multipart = settings.enable_coordinator and bool(decision.get("multipart"))
+        agents = decision["agents"]
         return {
-            "current_agent": agent,
-            "routing_scores": {agent: decision["confidence"]},
-            "routing_reason": reason,
-            "coordinator_mode": multipart,
-            "query_category": category,
+            "current_agents": agents,
+            "routing_confidence": decision["confidence"],
+            "routing_reason": decision["reason"],
+            "query_category": decision.get("category") or "general",
         }
 
-    async def execute_agent(state: ConversationState) -> dict[str, Any]:
-        """Run the routed agent (it may delegate to peers). Retries reuse this node with feedback."""
-        ctx = _delegation_context()
+    async def execute_agents(state: ConversationState) -> dict[str, Any]:
+        """Run all selected agents in parallel. Synthesize if more than one."""
+        agents = state.get("current_agents") or []
         query = _last_user_message(state["messages"])
         feedback = state.get("eval_feedback")
         if feedback:
@@ -94,26 +84,11 @@ def build_graph(
                 "Provide an improved answer to the original request."
             )
         hints = state.get("auto_memory_hints") or []
-        run = await run_agent(state["current_agent"], query, ctx, depth=0, hints=hints)
-        return {
-            "agent_response": run.text,
-            "tool_calls": run.tool_calls,
-            "spawned_agents": ctx.spawned,
-            "approval_queue": ctx.approvals,
-        }
-
-    async def coordinate(state: ConversationState) -> dict[str, Any]:
-        """Multi-part path: decompose → run agents in parallel → synthesize one answer."""
-        ctx = _delegation_context()
-        hints = state.get("auto_memory_hints") or []
-        result = await run_coordinator(state["messages"], ctx, hints=hints)
-        return {
-            "agent_response": result["response"],
-            "current_agent": "coordinator",
-            "spawned_agents": result["spawned"],
-            "approval_queue": ctx.approvals,
-            "tool_calls": [],
-        }
+        runs = await asyncio.gather(*(run_agent(a, query, registry=registry, settings=settings, tool_provider=tool_provider, depth=0, hints=hints) for a in agents))
+        if len(runs) == 1:
+            return {"agent_response": runs[0].text, "tool_calls": runs[0].tool_calls}
+        answer = await _synthesize(state["messages"], list(zip(agents, [r.text for r in runs])), settings)
+        return {"agent_response": answer, "tool_calls": []}
 
     async def evaluate(state: ConversationState) -> dict[str, Any]:
         """Phase 4: deterministic structural check, then a sampled LLM critic."""
@@ -124,7 +99,8 @@ def build_graph(
         if not structural["pass"]:
             return {"eval_result": {"pass": False, "score": 0.0, "feedback": structural["reason"], "stage": "structural"}}
 
-        agent = state.get("current_agent")
+        agents = state.get("current_agents") or []
+        agent = agents[0] if agents else None
         defn = registry.get(agent) if agent and agent in registry else None
         if defn is None:
             return {"eval_result": {"pass": True, "score": 1.0, "feedback": "no rubric to judge against", "stage": "skipped"}}
@@ -148,14 +124,10 @@ def build_graph(
         written = await extract_and_upsert(memory, settings, owner_id, user_message, state.get("agent_response") or "")
         return {"memory_writes": [{"extracted": written}]}
 
-    def should_coordinate(state: ConversationState) -> str:
-        """Branch after routing: multi-part → coordinator, else the single agent."""
-        return "coordinate" if state.get("coordinator_mode") else "execute_agent"
-
     def should_retry(state: ConversationState) -> str:
-        """Route a failing, retryable single-agent eval through ``revise``; otherwise finish."""
-        if state.get("coordinator_mode"):
-            return "save_memory"  # coordinated turns have no single agent to re-run
+        """Route a failing single-agent eval through ``revise``; multi-agent turns skip retry."""
+        if len(state.get("current_agents") or []) > 1:
+            return "save_memory"
         result = state.get("eval_result") or {}
         if result.get("pass") is False and state.get("retry_count", 0) < state.get("max_retries", 0):
             return "revise"
@@ -164,22 +136,34 @@ def build_graph(
     builder = StateGraph(ConversationState)
     builder.add_node("load_memory", load_memory)
     builder.add_node("route", route)
-    builder.add_node("execute_agent", execute_agent)
-    builder.add_node("coordinate", coordinate)
+    builder.add_node("execute_agents", execute_agents)
     builder.add_node("evaluate", evaluate)
     builder.add_node("revise", revise)
     builder.add_node("save_memory", save_memory)
 
     builder.add_edge(START, "load_memory")
     builder.add_edge("load_memory", "route")
-    builder.add_conditional_edges("route", should_coordinate, {"execute_agent": "execute_agent", "coordinate": "coordinate"})
-    builder.add_edge("execute_agent", "evaluate")
-    builder.add_edge("coordinate", "evaluate")
+    builder.add_edge("route", "execute_agents")
+    builder.add_edge("execute_agents", "evaluate")
     builder.add_conditional_edges("evaluate", should_retry, {"revise": "revise", "save_memory": "save_memory"})
-    builder.add_edge("revise", "execute_agent")
+    builder.add_edge("revise", "execute_agents")
     builder.add_edge("save_memory", END)
 
     return builder.compile()
+
+
+async def _synthesize(messages: list[dict[str, Any]], agent_answers: list[tuple[str, str]], settings: Settings) -> str:
+    """Combine multiple agents' answers into one coherent reply."""
+    user_question = next((m.get("content", "") for m in reversed(messages) if m.get("role") == "user"), "")
+    parts = "\n\n".join(f"[{agent}] {text}" for agent, text in agent_answers)
+    model = init_chat_model(settings.model_id_for_tier("standard"), model_provider=settings.default_provider)
+    out = await model.ainvoke(
+        [
+            {"role": "system", "content": "Combine the specialists' answers into one clear, coherent reply. Do not mention agent names."},
+            {"role": "user", "content": f"User asked:\n{user_question}\n\nSpecialist answers:\n{parts}"},
+        ]
+    )
+    return message_text(out)
 
 
 def build_initial_state(message: str, conversation_id: str | None = None, owner_id: str | None = None) -> ConversationState:
@@ -188,8 +172,8 @@ def build_initial_state(message: str, conversation_id: str | None = None, owner_
         messages=[{"role": "user", "content": message}],
         conversation_id=conversation_id or str(uuid.uuid4()),
         owner_id=owner_id,
-        current_agent=None,
-        routing_scores={},
+        current_agents=[],
+        routing_confidence=None,
         routing_reason=None,
         query_category=None,
         agent_response=None,
@@ -201,9 +185,6 @@ def build_initial_state(message: str, conversation_id: str | None = None, owner_
         session_summary=None,
         auto_memory_hints=[],
         memory_writes=[],
-        coordinator_mode=False,
-        spawned_agents=[],
-        approval_queue=[],
         metadata={},
     )
 
