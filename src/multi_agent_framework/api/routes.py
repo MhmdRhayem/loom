@@ -18,8 +18,9 @@ from multi_agent_framework.api.models import (
 )
 from multi_agent_framework.core.graph import build_initial_state
 from multi_agent_framework.learning.scoring import record_score
-from multi_agent_framework.learning.signals import reward_from_eval, reward_from_feedback
+from multi_agent_framework.learning.signals import reward_from_agent_eval, reward_from_eval, reward_from_feedback
 from multi_agent_framework.memory.consolidation import consolidate, should_dream
+from multi_agent_framework.storage.repositories.conversations import TurnAgentRecord
 
 logger = logging.getLogger(__name__)
 
@@ -86,31 +87,57 @@ async def _record_turn(request: Request, payload: ChatRequest, result: dict, lat
         return  # a non-UUID (custom client) conversation id -> skip persistence
 
     agents = result.get("current_agents") or []
-    agent = agents[0] if agents else None
-    registry = getattr(request.app.state, "registry", None)
-    model_tier = registry.get(agent).model if registry and agent and agent in registry else None
     eval_result = result.get("eval_result") or {}
+    # Per-agent verdicts the graph already computed (one per agent that ran); empty on a
+    # turn-level outcome (structural fail / evaluation disabled / nothing judged).
+    agent_evals = {e.get("agent"): e for e in (eval_result.get("agent_evals") or [])}
+
+    registry = getattr(request.app.state, "registry", None)
+
+    def model_tier(name: str | None) -> str | None:
+        return registry.get(name).model if registry and name and name in registry else None
+
+    # One turn_agents row per agent that ran, each carrying its own verdict.
+    turn_agents = [
+        TurnAgentRecord(
+            agent_name=name,
+            model_tier=model_tier(name),
+            eval_score=(agent_evals.get(name) or {}).get("score"),
+            eval_pass=(agent_evals.get(name) or {}).get("pass"),
+        )
+        for name in agents
+    ]
+    # The parent turn row represents the user-facing reply: for a single agent it carries that
+    # agent's name/tier; for a synthesized multi-agent turn those are left null (see turn_agents).
+    primary = agents[0] if len(agents) == 1 else None
 
     try:
         await db.conversations.record_turn(
             conversation_id=conversation_id,
             owner_id=payload.owner_id or "anonymous",
             user_message=payload.message,
-            agent_name=agent,
+            agent_name=primary,
             routing_confidence=result.get("routing_confidence"),
             agent_response=result.get("agent_response"),
             eval_score=eval_result.get("score"),
             retry_count=result.get("retry_count", 0) or 0,
-            model_tier=model_tier,
+            model_tier=model_tier(primary),
             latency_ms=latency_ms,
+            agents=turn_agents,
         )
     except Exception:  # noqa: BLE001 - persistence is best-effort
         logger.warning("turn persistence failed", exc_info=True)
 
-    # Phase 6 learning signal: fold the eval verdict into the agent's per-category EMA score.
+    # Phase 6 learning signal: fold each agent's verdict into its own per-category EMA score.
+    # With per-agent verdicts, score each from its own verdict; otherwise (a turn-level outcome
+    # such as a structural failure) attribute that single signal to every agent that ran.
     settings = getattr(request.app.state, "settings", None)
-    if agent and getattr(settings, "enable_learning", True):
-        await record_score(db.performance, agent, result.get("query_category") or "general", reward_from_eval(eval_result))
+    if agents and getattr(settings, "enable_learning", True):
+        category = result.get("query_category") or "general"
+        turn_reward = None if agent_evals else reward_from_eval(eval_result)
+        for name in agents:
+            reward = reward_from_agent_eval(agent_evals[name]) if name in agent_evals else turn_reward
+            await record_score(db.performance, name, category, reward)
 
 
 @router.post("/feedback", response_model=FeedbackResponse)
@@ -124,11 +151,18 @@ async def feedback(request: Request, payload: FeedbackRequest) -> FeedbackRespon
         turns = await db.conversations.get_turns(uuid.UUID(str(payload.conversation_id)))
     except (ValueError, TypeError):
         return FeedbackResponse(recorded=False, agent=None)
-    agent = turns[-1].agent_name if turns else None
-    if not agent:
+    if not turns:
         return FeedbackResponse(recorded=False, agent=None)
-    await record_score(db.performance, agent, "overall", reward)
-    return FeedbackResponse(recorded=True, agent=agent)
+    # Credit every agent that took part in the last turn; fall back to the parent row's agent.
+    last = turns[-1]
+    participants = [ta.agent_name for ta in await db.conversations.get_turn_agents(last.id)]
+    if not participants and last.agent_name:
+        participants = [last.agent_name]
+    if not participants:
+        return FeedbackResponse(recorded=False, agent=None)
+    for agent in participants:
+        await record_score(db.performance, agent, "overall", reward)
+    return FeedbackResponse(recorded=True, agent=", ".join(participants))
 
 
 @router.post("/dream", response_model=DreamResponse)

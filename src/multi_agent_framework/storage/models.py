@@ -68,6 +68,33 @@ class ConversationTurn(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
 
     conversation: Mapped[Conversation] = relationship(back_populates="turns")
+    agents: Mapped[list["TurnAgent"]] = relationship(back_populates="turn", cascade="all, delete-orphan", passive_deletes=True)
+
+
+class TurnAgent(Base):
+    """One agent's contribution to a single turn (one row per participating agent).
+
+    A turn's ``conversation_turns`` row holds the user-facing reply (a single agent's answer,
+    or the synthesis of several) and the overall verdict. This child table records what *each*
+    agent that ran contributed, so telemetry and feedback attribute per-agent rather than
+    collapsing a multi-agent turn onto its first agent.
+    """
+
+    __tablename__ = "turn_agents"
+    __table_args__ = (
+        Index("ix_turn_agents_turn_id", "turn_id"),
+        Index("ix_turn_agents_agent_name", "agent_name"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=False), primary_key=True)
+    turn_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("conversation_turns.id", ondelete="CASCADE"), nullable=False)
+    agent_name: Mapped[str] = mapped_column(Text, nullable=False)
+    model_tier: Mapped[str | None] = mapped_column(Text)
+    eval_score: Mapped[Decimal | None] = mapped_column(Numeric(4, 3))
+    eval_pass: Mapped[bool | None] = mapped_column(Boolean)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+
+    turn: Mapped[ConversationTurn] = relationship(back_populates="agents")
 
 
 class AgentPerformance(Base):

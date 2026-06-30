@@ -94,7 +94,14 @@ def build_graph(
         return {"agent_response": answer, "tool_calls": tool_calls, "agent_runs": agent_runs}
 
     async def evaluate(state: ConversationState) -> dict[str, Any]:
-        """Phase 4: deterministic structural check, then a sampled LLM critic."""
+        """Phase 4: structural check on the reply, then judge each agent's own answer.
+
+        The structural gate runs once on the synthesized reply. The LLM critic then judges
+        *each* agent's raw answer against *that agent's* rubric, sampled per-agent. Verdicts
+        are aggregated: the turn fails if any judged agent fails. For a single-agent turn the
+        raw answer is the reply, so this is the retryable path; multi-agent verdicts are
+        recorded but advisory (``should_retry`` only retries single-agent turns).
+        """
         if not settings.enable_evaluation:
             return {"eval_result": {"pass": True, "score": None, "feedback": "evaluation disabled", "stage": "disabled"}}
         response = state.get("agent_response") or ""
@@ -102,16 +109,25 @@ def build_graph(
         if not structural["pass"]:
             return {"eval_result": {"pass": False, "score": 0.0, "feedback": structural["reason"], "stage": "structural"}}
 
-        agents = state.get("current_agents") or []
-        agent = agents[0] if agents else None
-        defn = registry.get(agent) if agent and agent in registry else None
-        if defn is None:
+        runs = state.get("agent_runs") or []
+        if not runs:
             return {"eval_result": {"pass": True, "score": 1.0, "feedback": "no rubric to judge against", "stage": "skipped"}}
-        if state.get("retry_count", 0) == 0 and random.random() >= defn.judge_sample_rate:
-            return {"eval_result": {"pass": True, "score": None, "feedback": "not judged (sampled out)", "stage": "skipped"}}
 
-        verdict = await critique(response, defn, settings, _last_user_message(state["messages"]))
-        return {"eval_result": {**verdict, "stage": "critic"}}
+        force = state.get("retry_count", 0) > 0
+        user_message = _last_user_message(state["messages"])
+
+        async def judge(run: dict[str, Any]) -> dict[str, Any]:
+            agent = run.get("agent")
+            defn = registry.get(agent) if agent and agent in registry else None
+            if defn is None:
+                return {"agent": agent, "pass": True, "score": 1.0, "feedback": "no rubric to judge against", "judged": False}
+            if not force and random.random() >= defn.judge_sample_rate:
+                return {"agent": agent, "pass": True, "score": None, "feedback": "not judged (sampled out)", "judged": False}
+            verdict = await critique(run.get("text") or "", defn, settings, user_message)
+            return {"agent": agent, "judged": True, **verdict}
+
+        agent_evals = await asyncio.gather(*(judge(run) for run in runs))
+        return {"eval_result": _aggregate_evals(list(agent_evals))}
 
     async def revise(state: ConversationState) -> dict[str, Any]:
         """Set up one retry: bump the counter and feed the critic's feedback to the agent."""
@@ -153,6 +169,29 @@ def build_graph(
     builder.add_edge("save_memory", END)
 
     return builder.compile()
+
+
+def _aggregate_evals(agent_evals: list[dict[str, Any]]) -> dict[str, Any]:
+    """Combine per-agent verdicts into one ``eval_result``; fail if any judged agent fails."""
+    judged = [e for e in agent_evals if e.get("judged")]
+    if not judged:
+        return {"pass": True, "score": None, "feedback": "not judged (sampled out)", "stage": "skipped", "agent_evals": agent_evals}
+    overall_pass = all(e.get("pass", True) for e in judged)
+    scores = [e["score"] for e in judged if e.get("score") is not None]
+    failed = [e for e in judged if e.get("pass") is False]
+    if len(judged) == 1:
+        feedback = judged[0]["feedback"]
+    elif failed:
+        feedback = " | ".join(f"[{e['agent']}] {e['feedback']}" for e in failed)
+    else:
+        feedback = "all specialists passed"
+    return {
+        "pass": overall_pass,
+        "score": min(scores) if scores else None,
+        "feedback": feedback,
+        "stage": "critic",
+        "agent_evals": agent_evals,
+    }
 
 
 async def _synthesize(messages: list[dict[str, Any]], agent_answers: list[tuple[str, str]], settings: Settings) -> str:

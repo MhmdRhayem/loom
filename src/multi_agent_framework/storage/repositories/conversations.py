@@ -8,7 +8,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from multi_agent_framework.storage.base import Repository
-from multi_agent_framework.storage.models import Conversation, ConversationTurn
+from multi_agent_framework.storage.models import Conversation, ConversationTurn, TurnAgent
 
 
 @dataclass
@@ -27,6 +27,16 @@ class TurnRecord:
     tokens_used: int | None = None
     cost: Decimal | float | None = None
     cache_hit: bool = False
+
+
+@dataclass
+class TurnAgentRecord:
+    """One participating agent's per-turn contribution (a ``turn_agents`` row)."""
+
+    agent_name: str
+    model_tier: str | None = None
+    eval_score: float | None = None
+    eval_pass: bool | None = None
 
 
 class ConversationRepository(Repository):
@@ -87,10 +97,13 @@ class ConversationRepository(Repository):
         retry_count: int = 0,
         model_tier: str | None = None,
         latency_ms: int | None = None,
+        agents: list[TurnAgentRecord] | None = None,
     ) -> int:
         """Ensure the conversation exists, then append a turn with an auto-assigned number.
 
         Convenience for the request path (ensure -> number -> insert); returns the turn id.
+        ``agents`` is the per-agent breakdown (one row per agent that ran this turn); pass it
+        for every turn so single- and multi-agent turns are recorded uniformly.
         """
         await self.ensure_conversation(conversation_id, owner_id)
         turn = TurnRecord(
@@ -105,7 +118,33 @@ class ConversationRepository(Repository):
             model_tier=model_tier,
             latency_ms=latency_ms,
         )
-        return await self.insert_turn(turn)
+        turn_id = await self.insert_turn(turn)
+        if agents:
+            await self.add_turn_agents(turn_id, agents)
+        return turn_id
+
+    async def add_turn_agents(self, turn_id: int, agents: list[TurnAgentRecord]) -> None:
+        """Append the per-agent breakdown for a turn (one ``turn_agents`` row per agent)."""
+        if not agents:
+            return
+        async with self._session() as session, session.begin():
+            session.add_all(
+                TurnAgent(
+                    turn_id=turn_id,
+                    agent_name=a.agent_name,
+                    model_tier=a.model_tier,
+                    eval_score=a.eval_score,
+                    eval_pass=a.eval_pass,
+                )
+                for a in agents
+            )
+
+    async def get_turn_agents(self, turn_id: int) -> list[TurnAgent]:
+        """The per-agent rows for a turn, in insertion order (router's chosen order)."""
+        async with self._session() as session:
+            stmt = select(TurnAgent).where(TurnAgent.turn_id == turn_id).order_by(TurnAgent.id.asc())
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
 
     async def get_turns(self, conversation_id: UUID) -> list[ConversationTurn]:
         async with self._session() as session:
