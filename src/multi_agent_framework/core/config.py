@@ -54,7 +54,7 @@ class Settings:
     redis_url: str
     app_env: str = "development"
     log_level: str = "INFO"
-    default_provider: str = "anthropic"
+    default_provider: str = "openai"
     # Feature flags (Phase 7) — each gates one subsystem; flip any for ablation.
     enable_memory: bool = True        # Layer 2 auto-memory (load hints + extract)
     enable_evaluation: bool = True    # structural + LLM critic (+ retry)

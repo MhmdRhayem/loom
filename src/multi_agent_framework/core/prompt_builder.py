@@ -20,27 +20,6 @@ def message_text(message: Any) -> str:
 
 
 def build_system_prompt(agent_definition: dict[str, Any], static_intro: str = "") -> str:
-    """Compose an agent's system prompt from its declarative definition.
-
-    Returns a single static string — what ``create_agent`` takes. A per-session
-    dynamic block + explicit prompt-cache boundary are deferred: nothing injects
-    per-session values here yet, so add them when there is a real value to inject.
-    """
-    return _compose_static_block(agent_definition, static_intro)
-
-
-def build_messages(
-    conversation_messages: list[dict[str, Any]],
-    agent_definition: dict[str, Any],
-    memory_hints: list[str] | None = None,
-) -> list[dict[str, Any]]:
-    reminder = _format_system_reminder(agent_definition, memory_hints or [])
-    if reminder is None:
-        return list(conversation_messages)
-    return [{"role": "user", "content": reminder}, *conversation_messages]
-
-
-def _compose_static_block(agent_definition: dict[str, Any], static_intro: str) -> str:
     name = agent_definition.get("name", "agent")
     description = agent_definition.get("description", "")
     capabilities = agent_definition.get("capabilities", [])
@@ -61,6 +40,17 @@ def _compose_static_block(agent_definition: dict[str, Any], static_intro: str) -
         "- Stay within your declared capabilities; defer out-of-scope work."
     )
     return "\n\n".join(parts)
+
+
+def build_messages(
+    conversation_messages: list[dict[str, Any]],
+    agent_definition: dict[str, Any],
+    memory_hints: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    reminder = _format_system_reminder(agent_definition, memory_hints or [])
+    if reminder is None:
+        return list(conversation_messages)
+    return [{"role": "user", "content": reminder}, *conversation_messages]
 
 
 def _format_system_reminder(
