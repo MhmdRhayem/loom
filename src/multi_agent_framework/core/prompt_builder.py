@@ -47,13 +47,13 @@ def build_messages(
     agent_definition: dict[str, Any],
     memory_hints: list[str] | None = None,
 ) -> list[dict[str, Any]]:
-    reminder = _format_system_reminder(agent_definition, memory_hints or [])
-    if reminder is None:
+    context_block = _build_context_block(agent_definition, memory_hints or [])
+    if context_block is None:
         return list(conversation_messages)
-    return [{"role": "user", "content": reminder}, *conversation_messages]
+    return [{"role": "user", "content": context_block}, *conversation_messages]
 
 
-def _format_system_reminder(agent_definition: dict[str, Any], memory_hints: list[str]) -> str | None:
+def _build_context_block(agent_definition: dict[str, Any], memory_hints: list[str]) -> str | None:
     body_parts: list[str] = []
 
     tools = agent_definition.get("tools", [])
