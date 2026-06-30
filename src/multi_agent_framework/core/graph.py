@@ -30,12 +30,10 @@ from multi_agent_framework.core.config import Settings
 from multi_agent_framework.core.state import ConversationState
 from multi_agent_framework.evaluation.critic import critique
 from multi_agent_framework.evaluation.structural import check_structural
-from multi_agent_framework.learning.thompson import pick_agent
 from multi_agent_framework.memory.auto_memory import extract_and_upsert, load_hints
 
 if TYPE_CHECKING:
     from multi_agent_framework.storage.repositories.memory import MemoryRepository
-    from multi_agent_framework.storage.repositories.performance import PerformanceRepository
 
 ToolProvider = Callable[[Sequence[str]], Sequence[Any]]
 
@@ -47,7 +45,6 @@ def build_graph(
     *,
     fallback_agent: str | None = None,
     memory: "MemoryRepository | None" = None,
-    performance: "PerformanceRepository | None" = None,
 ):
     """Compile and return the conversation graph wired to ``registry`` + ``settings``."""
 
@@ -70,17 +67,12 @@ def build_graph(
         return {"auto_memory_hints": await load_hints(memory, owner_id)}
 
     async def route(state: ConversationState) -> dict[str, Any]:
-        """Pick the agent via the LLM router (or the learned Thompson policy); set the category."""
+        """Pick the agent via the LLM router; set the query category."""
         decision = await route_turn(state["messages"], registry, settings, fallback_agent=fallback_agent)
         agent = decision["agent"]
         category = decision.get("category") or "general"
         reason = decision["reason"]
         multipart = settings.enable_coordinator and bool(decision.get("multipart"))
-        # Optional learned routing: override the LLM pick with the bandit when we have data.
-        if settings.routing_strategy == "thompson" and performance is not None and not multipart:
-            picked = await pick_agent(performance, registry.names(), category)
-            if picked and picked != agent:
-                agent, reason = picked, f"thompson policy for '{category}' (LLM suggested {agent}). {reason}"
         return {
             "current_agent": agent,
             "routing_scores": {agent: decision["confidence"]},

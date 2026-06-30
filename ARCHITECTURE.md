@@ -60,10 +60,11 @@ first. All in-process; cross-process workers and human-in-the-loop approval are 
 
 **Learning (Phase 6).** Each turn's reward — the evaluator verdict, or an explicit thumbs
 rating via `POST /feedback` — folds into an EMA score per `(agent, category)` in
-`agent_performance` (the router emits a coarse `category`). That data backs **Thompson
-sampling** (`learning/thompson.py`): with `ROUTING_STRATEGY=thompson` the router's pick is
-replaced by `Beta(successes, failures)` sampling per category (off by default; falls back to
-the LLM pick when there's no data). **Layer 4 "dreaming"** (`memory/consolidation.py`,
+`agent_performance` (the router emits a coarse `category`), alongside a running pass/fail
+tally. That score is observability for which specialist underperforms on which category; it
+does not override routing. The agents are disjoint specialists, not interchangeable arms, so
+routing stays a deterministic classification by the LLM router (no bandit). **Layer 4
+"dreaming"** (`memory/consolidation.py`,
 `POST /dream`) periodically merges duplicate memories and prunes stale ones, logging each run
 to `dream_runs`. All of it is fail-soft and never blocks a turn.
 
@@ -98,7 +99,7 @@ resolves against `DEFAULT_PROVIDER`. So `DEFAULT_PROVIDER=openai` swaps the whol
 Keys: `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GOOGLE_API_KEY`. **Feature flags** gate each
 subsystem (all default on; flip for ablation): `ENABLE_MEMORY` / `ENABLE_EVALUATION` /
 `ENABLE_LEARNING` / `ENABLE_COORDINATOR` / `ENABLE_DREAMING`. Tuning: `MAX_DELEGATION_DEPTH` /
-`DELEGATION_BUDGET`, `ROUTING_STRATEGY=thompson`, `DREAM_MIN_MEMORIES` / `DREAM_INTERVAL_HOURS`.
+`DELEGATION_BUDGET`, `DREAM_MIN_MEMORIES` / `DREAM_INTERVAL_HOURS`.
 (Anthropic IDs are authoritative; OpenAI/Google IDs are post-cutoff placeholders — verify at
 integration.)
 
@@ -123,7 +124,6 @@ integration.)
 | `evaluation/critic.py` | Stage 3: sampled LLM critic against the agent's `eval_rubric`; fail-silent | wired |
 | `learning/signals.py` | Reward from the eval verdict or explicit feedback (pure) | wired |
 | `learning/scoring.py` | EMA score per `(agent, category)` in `agent_performance`; fail-silent | wired |
-| `learning/thompson.py` | `Beta` sampling over agents per category (off by default) | wired |
 | `memory/consolidation.py` | Layer 4 "dreaming": merge/prune memories on a trigger; logs `dream_runs` | wired |
 | `storage/base.py` | `Database` — async pool + repositories; `create_all()` (Alembic-free) | wired — opened at boot |
 | `storage/models.py` | ORM tables for all phases | schema only |
@@ -164,8 +164,8 @@ Run with `uvicorn --env-file .env myapp.app:app`. Nothing in the framework chang
 cross-session auto-memory, conversation/turn persistence (every `/chat` turn, fail-soft),
 Phase 4 evaluation (structural + sampled critic + one bounded retry), and Phase 5
 multi-agent (coordinator + guarded peer delegation + approval gates, in-process), Phase 6
-adaptive learning (per-`(agent,category)` EMA scoring from eval + `/feedback`, Thompson
-routing off by default, and Layer 4 memory "dreaming"), and Phase 7 fail-silent + feature
+adaptive learning (per-`(agent,category)` EMA scoring from eval + `/feedback`, and Layer 4
+memory "dreaming"), and Phase 7 fail-silent + feature
 flags (each subsystem gated by an `ENABLE_*` flag). Verified end-to-end on a live provider:
 routing, single + coordinator multi-agent, memory, evaluation, persistence, scoring, dreaming.
 

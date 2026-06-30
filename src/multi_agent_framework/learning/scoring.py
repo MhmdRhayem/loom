@@ -1,7 +1,7 @@
 """Phase 6 — per-(agent, category) performance scoring via an exponential moving average.
 
 After each turn we fold the reward into the agent's EMA for the query category and bump its
-success/failure counts (the counts feed Thompson sampling). Stored in ``agent_performance``.
+success/failure counts (a per-category pass/fail tally for observability). Stored in ``agent_performance``.
 Runs live, fail-soft, never blocks the response. A ``None`` reward (sampled-out turn) is a
 no-op.
 """

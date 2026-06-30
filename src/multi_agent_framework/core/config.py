@@ -63,7 +63,6 @@ class Settings:
     enable_dreaming: bool = True       # Layer 4 consolidation
     max_delegation_depth: int = 2    # how deep agent-to-agent calls may nest (1 disables delegation)
     delegation_budget: int = 6       # max total agent runs per turn (hard stop)
-    routing_strategy: str = "llm"    # "llm" (default) or "thompson" (Phase 6 learned routing)
     dream_min_memories: int = 8      # Layer 4: min stored memories before a consolidation run
     dream_interval_hours: int = 24   # Layer 4: min hours between consolidation runs
     model_tiers: ModelTiers = field(default_factory=ModelTiers)
@@ -89,7 +88,6 @@ class Settings:
             enable_dreaming=_flag("ENABLE_DREAMING"),
             max_delegation_depth=int(os.environ.get("MAX_DELEGATION_DEPTH", "2")),
             delegation_budget=int(os.environ.get("DELEGATION_BUDGET", "6")),
-            routing_strategy=os.environ.get("ROUTING_STRATEGY", "llm"),
             dream_min_memories=int(os.environ.get("DREAM_MIN_MEMORIES", "8")),
             dream_interval_hours=int(os.environ.get("DREAM_INTERVAL_HOURS", "24")),
         )
