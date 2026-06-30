@@ -85,10 +85,13 @@ def build_graph(
             )
         hints = state.get("auto_memory_hints") or []
         runs = await asyncio.gather(*(run_agent(a, query, registry=registry, settings=settings, tool_provider=tool_provider, depth=0, hints=hints) for a in agents))
+        agent_runs = [{"agent": a, "text": r.text, "tool_calls": r.tool_calls} for a, r in zip(agents, runs)]
+        tool_calls = [call for r in runs for call in r.tool_calls]
         if len(runs) == 1:
-            return {"agent_response": runs[0].text, "tool_calls": runs[0].tool_calls}
-        answer = await _synthesize(state["messages"], list(zip(agents, [r.text for r in runs])), settings)
-        return {"agent_response": answer, "tool_calls": []}
+            answer = runs[0].text
+        else:
+            answer = await _synthesize(state["messages"], list(zip(agents, [r.text for r in runs])), settings)
+        return {"agent_response": answer, "tool_calls": tool_calls, "agent_runs": agent_runs}
 
     async def evaluate(state: ConversationState) -> dict[str, Any]:
         """Phase 4: deterministic structural check, then a sampled LLM critic."""
@@ -178,6 +181,7 @@ def build_initial_state(message: str, conversation_id: str | None = None, owner_
         query_category=None,
         agent_response=None,
         tool_calls=[],
+        agent_runs=[],
         eval_result=None,
         eval_feedback=None,
         retry_count=0,

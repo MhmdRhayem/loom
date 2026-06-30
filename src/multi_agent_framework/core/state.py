@@ -11,8 +11,9 @@ class ConversationState(TypedDict):
     routing_reason: str | None
     query_category: str | None  # coarse intent label for performance scoring
 
-    agent_response: str | None
-    tool_calls: list[dict[str, Any]]
+    agent_response: str | None  # the final reply (a single agent's answer, or the synthesis of several)
+    tool_calls: list[dict[str, Any]]  # every tool call across all agents this turn (flattened)
+    agent_runs: list[dict[str, Any]]  # per-agent breakdown: {agent, text, tool_calls} — preserved even when synthesized
 
     eval_result: dict[str, Any] | None
     eval_feedback: str | None  # critic feedback fed back to the agent on a retry
