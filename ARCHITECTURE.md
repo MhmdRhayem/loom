@@ -114,8 +114,9 @@ integration.)
 | `agents/factory.py` | `build_agent` (`AgentDefinition` → live `create_agent`) + `run_agent` (run it in-process) + `ask_<agent>` peer tools (depth-bounded) | wired |
 | `agents/router.py` | Fast-tier routing call; pure `_validate()` fallback policy; returns one or more agents | wired |
 | `api/main.py` | `create_app(...)` factory + lifespan (opens DB/Redis fail-soft, builds graph) | wired |
-| `api/routes.py` | `POST /chat` (records + scores each turn) + `/feedback` + `/dream` + `GET /health` | wired |
+| `api/routes.py` | Thin HTTP layer: pull deps off `app.state` → call `service` → map to a response model (`/chat`, `/feedback`, `/dream`, `GET /health`) | wired |
 | `api/models.py` | Pydantic `ChatRequest`/`ChatResponse`/`HealthResponse` (incl. `owner_id`) | wired |
+| `service.py` | Application layer: `run_turn` / `record_feedback` / `run_dream` — composes graph + persistence + learning + consolidation; FastAPI-free, so routes stay thin | wired |
 | `memory/auto_memory.py` | Layer 2: `load_hints` (read) + `extract_and_upsert` (write, dedupe by topic); fail-silent | wired |
 | `evaluation/structural.py` | Stage 1: deterministic checks (empty / too short) | wired |
 | `evaluation/critic.py` | Stage 3: sampled LLM critic against the agent's `eval_rubric`; fail-silent | wired |
