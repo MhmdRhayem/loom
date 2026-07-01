@@ -6,6 +6,7 @@ Definitions reference model *tier names* (fast/standard/deep), never provider mo
 IDs — those resolve in ``core/config.py``. The registry validates structure at load
 time so a malformed roster fails fast instead of at request time.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -65,7 +66,9 @@ class AgentRegistry:
         self._agents: dict[str, AgentDefinition] = {}
 
     @classmethod
-    def from_directory(cls, path: str | Path, terminal_targets: set[str] | None = None) -> "AgentRegistry":
+    def from_directory(
+        cls, path: str | Path, terminal_targets: set[str] | None = None
+    ) -> "AgentRegistry":
         registry = cls()
         registry.load_directory(path, terminal_targets)
         return registry
@@ -96,17 +99,23 @@ class AgentRegistry:
         defn = AgentDefinition.from_dict(data)
 
         if defn.name != file.stem:
-            raise RegistryError(f"{file.name}: name '{defn.name}' must match the filename stem '{file.stem}'")
+            raise RegistryError(
+                f"{file.name}: name '{defn.name}' must match the filename stem '{file.stem}'"
+            )
         if defn.name in self._agents:
             raise RegistryError(f"duplicate agent name '{defn.name}' ({file.name})")
         if defn.model not in VALID_TIERS:
-            raise RegistryError(f"{defn.name}: model tier '{defn.model}' not one of {sorted(VALID_TIERS)}")
+            raise RegistryError(
+                f"{defn.name}: model tier '{defn.model}' not one of {sorted(VALID_TIERS)}"
+            )
         if not defn.tools:
             raise RegistryError(f"{defn.name}: must declare at least one tool")
         if not defn.capabilities:
             raise RegistryError(f"{defn.name}: must declare at least one capability")
         if not 0.0 <= defn.judge_sample_rate <= 1.0:
-            raise RegistryError(f"{defn.name}: judge_sample_rate {defn.judge_sample_rate} must be in [0.0, 1.0]")
+            raise RegistryError(
+                f"{defn.name}: judge_sample_rate {defn.judge_sample_rate} must be in [0.0, 1.0]"
+            )
 
         self._agents[defn.name] = defn
 
@@ -140,7 +149,11 @@ class AgentRegistry:
     def router_menu(self) -> list[dict[str, Any]]:
         """Compact menu the router shows the LLM: name, description, capabilities."""
         return [
-            {"name": defn.name, "description": defn.description, "capabilities": list(defn.capabilities)}
+            {
+                "name": defn.name,
+                "description": defn.description,
+                "capabilities": list(defn.capabilities),
+            }
             for defn in self.all()
         ]
 

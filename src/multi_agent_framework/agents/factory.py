@@ -26,7 +26,11 @@ from langchain_core.tools import BaseTool
 
 from multi_agent_framework.agents.registry import AgentDefinition, AgentRegistry
 from multi_agent_framework.core.config import Settings
-from multi_agent_framework.core.prompt_builder import build_messages, build_system_prompt, message_text
+from multi_agent_framework.core.prompt_builder import (
+    build_messages,
+    build_system_prompt,
+    message_text,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +121,11 @@ def _ask_peer_tools(
     exclude: str | None = None,
 ) -> list[Callable[..., Any]]:
     """An ``ask_<agent>`` tool for every agent except ``exclude`` — the agent-to-agent call surface."""
-    return [_ask_tool(name, registry, settings, tool_provider, depth) for name in registry.names() if name != exclude]
+    return [
+        _ask_tool(name, registry, settings, tool_provider, depth)
+        for name in registry.names()
+        if name != exclude
+    ]
 
 
 def _ask_tool(
@@ -131,7 +139,14 @@ def _ask_tool(
     description = registry.get(name).description.strip()
 
     async def ask(query: str) -> str:
-        run = await run_agent(name, query, registry=registry, settings=settings, tool_provider=tool_provider, depth=depth)
+        run = await run_agent(
+            name,
+            query,
+            registry=registry,
+            settings=settings,
+            tool_provider=tool_provider,
+            depth=depth,
+        )
         return run.text
 
     ask.__name__ = f"ask_{name}"

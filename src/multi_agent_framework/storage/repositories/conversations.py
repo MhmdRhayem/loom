@@ -72,16 +72,26 @@ class ConversationRepository(Repository):
             )
             return row.id
 
-    async def ensure_conversation(self, conversation_id: UUID, owner_id: str, status: str = "active") -> None:
+    async def ensure_conversation(
+        self, conversation_id: UUID, owner_id: str, status: str = "active"
+    ) -> None:
         """Insert the conversation row under a known id if it does not exist (idempotent)."""
-        stmt = pg_insert(Conversation).values(id=conversation_id, owner_id=owner_id, status=status).on_conflict_do_nothing(index_elements=["id"])
+        stmt = (
+            pg_insert(Conversation)
+            .values(id=conversation_id, owner_id=owner_id, status=status)
+            .on_conflict_do_nothing(index_elements=["id"])
+        )
         async with self._session() as session, session.begin():
             await session.execute(stmt)
 
     async def next_turn_number(self, conversation_id: UUID) -> int:
         """1-based number for the next turn in this conversation."""
         async with self._session() as session:
-            count = await session.scalar(select(func.count()).select_from(ConversationTurn).where(ConversationTurn.conversation_id == conversation_id))
+            count = await session.scalar(
+                select(func.count())
+                .select_from(ConversationTurn)
+                .where(ConversationTurn.conversation_id == conversation_id)
+            )
             return int(count or 0) + 1
 
     async def record_turn(
@@ -142,19 +152,30 @@ class ConversationRepository(Repository):
     async def get_turn_agents(self, turn_id: int) -> list[TurnAgent]:
         """The per-agent rows for a turn, in insertion order (router's chosen order)."""
         async with self._session() as session:
-            stmt = select(TurnAgent).where(TurnAgent.turn_id == turn_id).order_by(TurnAgent.id.asc())
+            stmt = (
+                select(TurnAgent).where(TurnAgent.turn_id == turn_id).order_by(TurnAgent.id.asc())
+            )
             result = await session.execute(stmt)
             return list(result.scalars().all())
 
     async def get_turns(self, conversation_id: UUID) -> list[ConversationTurn]:
         async with self._session() as session:
-            stmt = select(ConversationTurn).where(ConversationTurn.conversation_id == conversation_id).order_by(ConversationTurn.turn_number.asc())
+            stmt = (
+                select(ConversationTurn)
+                .where(ConversationTurn.conversation_id == conversation_id)
+                .order_by(ConversationTurn.turn_number.asc())
+            )
             result = await session.execute(stmt)
             return list(result.scalars().all())
 
     async def list_conversations(self, owner_id: str, limit: int = 50) -> list[Conversation]:
         """An owner's conversations, newest first (for history/dashboard)."""
-        stmt = select(Conversation).where(Conversation.owner_id == owner_id).order_by(Conversation.created_at.desc()).limit(limit)
+        stmt = (
+            select(Conversation)
+            .where(Conversation.owner_id == owner_id)
+            .order_by(Conversation.created_at.desc())
+            .limit(limit)
+        )
         async with self._session() as session:
             result = await session.execute(stmt)
             return list(result.scalars().all())
@@ -162,9 +183,15 @@ class ConversationRepository(Repository):
     async def set_conversation_status(self, conversation_id: UUID, status: str) -> None:
         """Change a conversation's status (e.g. 'active' -> 'completed')."""
         async with self._session() as session, session.begin():
-            await session.execute(update(Conversation).where(Conversation.id == conversation_id).values(status=status))
+            await session.execute(
+                update(Conversation).where(Conversation.id == conversation_id).values(status=status)
+            )
 
     async def increment_compaction(self, conversation_id: UUID) -> None:
         """Record that the conversation's context was compacted once more (Layer 2)."""
         async with self._session() as session, session.begin():
-            await session.execute(update(Conversation).where(Conversation.id == conversation_id).values(compaction_count=Conversation.compaction_count + 1))
+            await session.execute(
+                update(Conversation)
+                .where(Conversation.id == conversation_id)
+                .values(compaction_count=Conversation.compaction_count + 1)
+            )

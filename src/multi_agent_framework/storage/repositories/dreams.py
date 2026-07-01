@@ -47,14 +47,24 @@ class DreamRepository(Repository):
 
         Used by the scheduler to decide whether it is time to dream again.
         """
-        stmt = select(DreamRun).where(DreamRun.owner_id == owner_id).order_by(DreamRun.started_at.desc()).limit(1)
+        stmt = (
+            select(DreamRun)
+            .where(DreamRun.owner_id == owner_id)
+            .order_by(DreamRun.started_at.desc())
+            .limit(1)
+        )
         async with self._session() as session:
             result = await session.execute(stmt)
             return result.scalars().first()
 
     async def list_dream_runs(self, owner_id: str, limit: int = 50) -> list[DreamRun]:
         """Recent dream runs for an owner, newest first (for history/dashboard)."""
-        stmt = select(DreamRun).where(DreamRun.owner_id == owner_id).order_by(DreamRun.started_at.desc()).limit(limit)
+        stmt = (
+            select(DreamRun)
+            .where(DreamRun.owner_id == owner_id)
+            .order_by(DreamRun.started_at.desc())
+            .limit(limit)
+        )
         async with self._session() as session:
             result = await session.execute(stmt)
             return list(result.scalars().all())

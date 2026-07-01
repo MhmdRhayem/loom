@@ -28,16 +28,17 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
     "httpx>=0.28",
+    "ruff>=0.15.20",
 ]
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.black]
-line-length = 200
+line-length = 100
 
 [tool.ruff]
-line-length = 200
+line-length = 100
 
 [tool.ruff.format]
 # match the black line-length above

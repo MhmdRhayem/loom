@@ -22,12 +22,24 @@ persists across turns.
 Layout: the engine/session, the ORM models, and one access function per tool. Seed data
 lives in ``seed.py``; ``tools.py`` is a thin layer mapping tool names to these functions.
 """
+
 from __future__ import annotations
 
 import hashlib
 from typing import Any
 
-from sqlalchemy import Boolean, Float, Identity, Integer, MetaData, Text, create_engine, func, select, text
+from sqlalchemy import (
+    Boolean,
+    Float,
+    Identity,
+    Integer,
+    MetaData,
+    Text,
+    create_engine,
+    func,
+    select,
+    text,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
 from multi_agent_framework.core.config import Settings
@@ -194,7 +206,16 @@ def search_products(query: str) -> dict[str, Any]:
 
         ranked = sorted(products, key=lambda p: (score(p), p.rating), reverse=True)
         chosen = [p for p in ranked if score(p) > 0][:8] or ranked[:5]
-        results = [{"id": p.id, "name": p.name, "price": p.price, "rating": p.rating, "in_stock": p.in_stock} for p in chosen]
+        results = [
+            {
+                "id": p.id,
+                "name": p.name,
+                "price": p.price,
+                "rating": p.rating,
+                "in_stock": p.in_stock,
+            }
+            for p in chosen
+        ]
     return {"query": query, "results": results}
 
 
@@ -206,14 +227,23 @@ def get_price(product_id: str) -> dict[str, Any]:
             return {"product_id": product_id, "found": False, "message": "No product with that id."}
         coupon = session.scalars(
             select(Coupon)
-            .where((Coupon.product_id == product_id) | (Coupon.product_id.is_(None)), Coupon.min_subtotal <= product.price)
+            .where(
+                (Coupon.product_id == product_id) | (Coupon.product_id.is_(None)),
+                Coupon.min_subtotal <= product.price,
+            )
             .order_by(Coupon.discount_pct.desc())
             .limit(1)
         ).first()
         price, deal = product.price, product.deal
         best_coupon = {"code": coupon.code, "discount_pct": coupon.discount_pct} if coupon else None
         final_price = round(price * (1 - coupon.discount_pct / 100), 2) if coupon else price
-    return {"product_id": product_id, "price": price, "deal": deal, "best_coupon": best_coupon, "final_price": final_price}
+    return {
+        "product_id": product_id,
+        "price": price,
+        "deal": deal,
+        "best_coupon": best_coupon,
+        "final_price": final_price,
+    }
 
 
 def get_order(order_id: str) -> dict[str, Any]:
@@ -221,7 +251,11 @@ def get_order(order_id: str) -> dict[str, Any]:
     with SessionLocal() as session:
         order = session.get(Order, order_id)
         if order is None:
-            return {"order_id": order_id, "status": "not_found", "message": "No order with that id."}
+            return {
+                "order_id": order_id,
+                "status": "not_found",
+                "message": "No order with that id.",
+            }
         return {
             "order_id": order.order_id,
             "status": order.status,
@@ -262,7 +296,17 @@ def start_return(order_id: str) -> dict[str, Any]:
 
         rma_number = _next_id(session, Return, "RMA-", 55872)
         next_step = "Pack the item and drop it at any carrier location using the emailed label."
-        session.add(Return(rma_number=rma_number, order_id=order_id, eligible=True, window_days_left=30, refund_method="original payment", status="open", next_step=next_step))
+        session.add(
+            Return(
+                rma_number=rma_number,
+                order_id=order_id,
+                eligible=True,
+                window_days_left=30,
+                refund_method="original payment",
+                status="open",
+                next_step=next_step,
+            )
+        )
         return {
             "order_id": order_id,
             "eligible": True,
@@ -292,7 +336,14 @@ def cart_ops(action: str = "view", item_id: str = "", cart_id: str = "current") 
     with SessionLocal.begin() as session:
         if action == "add" and item_id:
             if session.get(Product, item_id) is None:
-                return {"action": action, "item_id": item_id, "error": "No product with that id.", "cart": [], "subtotal": 0.0, "stock_ok": False}
+                return {
+                    "action": action,
+                    "item_id": item_id,
+                    "error": "No product with that id.",
+                    "cart": [],
+                    "subtotal": 0.0,
+                    "stock_ok": False,
+                }
             line = session.get(CartItem, {"cart_id": cart_id, "product_id": item_id})
             if line is None:
                 session.add(CartItem(cart_id=cart_id, product_id=item_id, qty=1))
@@ -305,7 +356,13 @@ def cart_ops(action: str = "view", item_id: str = "", cart_id: str = "current") 
 
         session.flush()
         cart, subtotal, stock_ok = _cart_snapshot(session, cart_id)
-    return {"action": action, "item_id": item_id, "cart": cart, "subtotal": subtotal, "stock_ok": stock_ok}
+    return {
+        "action": action,
+        "item_id": item_id,
+        "cart": cart,
+        "subtotal": subtotal,
+        "stock_ok": stock_ok,
+    }
 
 
 def get_payment_status(cart_id: str = "current") -> dict[str, Any]:
@@ -313,8 +370,18 @@ def get_payment_status(cart_id: str = "current") -> dict[str, Any]:
     with SessionLocal() as session:
         payment = session.get(Payment, cart_id)
         if payment is None:
-            return {"cart_id": cart_id, "payment_status": "approved", "reason": None, "suggestion": None}
-        return {"cart_id": cart_id, "payment_status": payment.payment_status, "reason": payment.reason, "suggestion": payment.suggestion}
+            return {
+                "cart_id": cart_id,
+                "payment_status": "approved",
+                "reason": None,
+                "suggestion": None,
+            }
+        return {
+            "cart_id": cart_id,
+            "payment_status": payment.payment_status,
+            "reason": payment.reason,
+            "suggestion": payment.suggestion,
+        }
 
 
 def account_action(action: str, email: str = "") -> dict[str, Any]:
@@ -322,7 +389,9 @@ def account_action(action: str, email: str = "") -> dict[str, Any]:
     with SessionLocal() as session:
         account = session.get(Account, email)
         if action == "profile":
-            result: Any = {"name": account.name, "address": account.address} if account else "not_found"
+            result: Any = (
+                {"name": account.name, "address": account.address} if account else "not_found"
+            )
         else:
             result = "ok" if account or not email else "not_found"
 
@@ -346,7 +415,11 @@ def search_faq(query: str) -> dict[str, Any]:
 
         best = max(faqs, key=score, default=None)
         if best is None or score(best) == 0:
-            return {"query": query, "answer": "I couldn't find that in our help center. I can open a ticket so a human can help.", "source": None}
+            return {
+                "query": query,
+                "answer": "I couldn't find that in our help center. I can open a ticket so a human can help.",
+                "source": None,
+            }
         return {"query": query, "answer": best.answer, "source": best.source}
 
 
@@ -354,5 +427,13 @@ def open_ticket(summary: str) -> dict[str, Any]:
     """Open a support ticket in the human-support queue and persist it."""
     with SessionLocal.begin() as session:
         ticket_id = _next_id(session, Ticket, "TCK-", 40192)
-        session.add(Ticket(ticket_id=ticket_id, summary=summary, status="open", queue="human-support", created_on="2026-06-27"))
+        session.add(
+            Ticket(
+                ticket_id=ticket_id,
+                summary=summary,
+                status="open",
+                queue="human-support",
+                created_on="2026-06-27",
+            )
+        )
     return {"ticket_id": ticket_id, "summary": summary, "status": "open", "queue": "human-support"}

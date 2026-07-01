@@ -4,6 +4,7 @@ Two sources: the evaluator's verdict (automatic, every judged turn) and explicit
 feedback (thumbs up/down). Pure and tiny — no LLM, no I/O — so scoring stays cheap and
 testable. ``None`` means "no usable signal" (e.g. the critic sampled the turn out).
 """
+
 from __future__ import annotations
 
 from typing import Any

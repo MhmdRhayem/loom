@@ -38,7 +38,9 @@ _INSTRUCTIONS = (
 class RouterDecision(BaseModel):
     """Structured routing decision returned by the model."""
 
-    agents: list[str] = Field(description="One or more exact agent names from the menu, ordered by relevance.")
+    agents: list[str] = Field(
+        description="One or more exact agent names from the menu, ordered by relevance."
+    )
     confidence: float = Field(ge=0.0, le=1.0, description="0-1 confidence in the choice.")
     reason: str = Field(description="One-sentence justification.")
     category: str = Field(default="general", description="Short lowercase intent label.")
@@ -54,7 +56,10 @@ def _format_menu(registry: AgentRegistry) -> str:
 
 def _build_prompt(registry: AgentRegistry, messages: list[dict[str, Any]]) -> list[dict[str, str]]:
     system = f"{_INSTRUCTIONS}\n\n{_format_menu(registry)}"
-    recent = [{"role": str(m.get("role", "user")), "content": str(m.get("content", ""))} for m in messages[-_RECENT_WINDOW:]]
+    recent = [
+        {"role": str(m.get("role", "user")), "content": str(m.get("content", ""))}
+        for m in messages[-_RECENT_WINDOW:]
+    ]
     return [{"role": "system", "content": system}, *recent]
 
 
@@ -71,8 +76,12 @@ async def route_turn(
         settings.model_id_for_tier("fast"),
         model_provider=settings.default_provider,
     )
-    decision: RouterDecision = await model.with_structured_output(RouterDecision).ainvoke(_build_prompt(registry, messages))
-    agents = _validate(decision, registry, fallback_agent=fallback_agent, min_confidence=min_confidence)
+    decision: RouterDecision = await model.with_structured_output(RouterDecision).ainvoke(
+        _build_prompt(registry, messages)
+    )
+    agents = _validate(
+        decision, registry, fallback_agent=fallback_agent, min_confidence=min_confidence
+    )
     return {
         "agents": agents,
         "confidence": decision.confidence,

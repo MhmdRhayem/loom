@@ -7,6 +7,7 @@ truth. Run after Postgres is up (``docker compose up``):
 
 Idempotent — safe to run repeatedly (CREATE TABLE IF NOT EXISTS).
 """
+
 from __future__ import annotations
 
 import asyncio

@@ -38,7 +38,9 @@ class MemoryRepository(Repository):
             await session.flush()
             return mem.id
 
-    async def load_auto_memory(self, owner_id: str, topic: str | None = None, limit: int = 200) -> list[AutoMemory]:
+    async def load_auto_memory(
+        self, owner_id: str, topic: str | None = None, limit: int = 200
+    ) -> list[AutoMemory]:
         stmt = select(AutoMemory).where(AutoMemory.owner_id == owner_id)
         stmt = stmt.where((AutoMemory.expires_at.is_(None)) | (AutoMemory.expires_at > func.now()))
         if topic is not None:
@@ -82,7 +84,9 @@ class MemoryRepository(Repository):
         if len(values) == 1:  # only updated_at — nothing was actually passed
             return
         async with self._session() as session, session.begin():
-            await session.execute(update(AutoMemory).where(AutoMemory.id == memory_id).values(**values))
+            await session.execute(
+                update(AutoMemory).where(AutoMemory.id == memory_id).values(**values)
+            )
 
     async def delete_auto_memory(self, memory_id: UUID) -> None:
         """Permanently remove a memory (used by the consolidation/prune step)."""
@@ -103,7 +107,9 @@ class MemoryRepository(Repository):
         """
         stmt = select(func.count()).select_from(AutoMemory).where(AutoMemory.owner_id == owner_id)
         if not include_expired:
-            stmt = stmt.where((AutoMemory.expires_at.is_(None)) | (AutoMemory.expires_at > func.now()))
+            stmt = stmt.where(
+                (AutoMemory.expires_at.is_(None)) | (AutoMemory.expires_at > func.now())
+            )
         async with self._session() as session:
             result = await session.execute(stmt)
             return int(result.scalar_one())

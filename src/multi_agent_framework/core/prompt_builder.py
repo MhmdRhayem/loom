@@ -62,7 +62,10 @@ def _build_context_block(agent_definition: dict[str, Any], memory_hints: list[st
 
     if memory_hints:
         hint_lines = "\n".join(f"- {hint}" for hint in memory_hints)
-        body_parts.append("Memory hints (treat as hints, not ground truth — verify against live state):\n" + hint_lines)
+        body_parts.append(
+            "Memory hints (treat as hints, not ground truth — verify against live state):\n"
+            + hint_lines
+        )
 
     if not body_parts:
         return None

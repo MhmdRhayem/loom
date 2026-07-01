@@ -5,6 +5,7 @@ A separate fast-tier call returns a structured verdict. It is *sampled* per agen
 the sampling decision lives in the graph's ``evaluate`` node). Fail-silent: if the critic
 errors or times out, the turn passes through flagged rather than blocking the user.
 """
+
 from __future__ import annotations
 
 import logging
@@ -40,12 +41,23 @@ def _prompt(response: str, definition: AgentDefinition, user_message: str) -> li
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 
-async def critique(response: str, definition: AgentDefinition, settings: Settings, user_message: str) -> dict[str, Any]:
+async def critique(
+    response: str, definition: AgentDefinition, settings: Settings, user_message: str
+) -> dict[str, Any]:
     """Return ``{pass, score, feedback}``. Fail-silent: on error, pass through with a warning."""
     try:
-        model = init_chat_model(settings.model_id_for_tier("fast"), model_provider=settings.default_provider)
-        verdict: Verdict = await model.with_structured_output(Verdict).ainvoke(_prompt(response, definition, user_message))
+        model = init_chat_model(
+            settings.model_id_for_tier("fast"), model_provider=settings.default_provider
+        )
+        verdict: Verdict = await model.with_structured_output(Verdict).ainvoke(
+            _prompt(response, definition, user_message)
+        )
         return {"pass": verdict.passed, "score": verdict.score, "feedback": verdict.feedback}
     except Exception:  # noqa: BLE001 - the critic must never block the user
         logger.warning("LLM critic failed for agent %s", definition.name, exc_info=True)
-        return {"pass": True, "score": None, "feedback": "critic unavailable; passed through", "warning": True}
+        return {
+            "pass": True,
+            "score": None,
+            "feedback": "critic unavailable; passed through",
+            "warning": True,
+        }

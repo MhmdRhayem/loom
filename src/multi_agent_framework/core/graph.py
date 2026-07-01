@@ -62,7 +62,9 @@ def build_graph(
 
     async def route(state: ConversationState) -> dict[str, Any]:
         """Pick one or more agents via the LLM router; set the query category."""
-        decision = await route_turn(state["messages"], registry, settings, fallback_agent=fallback_agent)
+        decision = await route_turn(
+            state["messages"], registry, settings, fallback_agent=fallback_agent
+        )
         agents = decision["agents"]
         return {
             "current_agents": agents,
@@ -84,13 +86,30 @@ def build_graph(
                 "Provide an improved answer to the original request."
             )
         hints = state.get("auto_memory_hints") or []
-        runs = await asyncio.gather(*(run_agent(a, query, registry=registry, settings=settings, tool_provider=tool_provider, depth=0, hints=hints) for a in agents))
-        agent_runs = [{"agent": a, "text": r.text, "tool_calls": r.tool_calls} for a, r in zip(agents, runs)]
+        runs = await asyncio.gather(
+            *(
+                run_agent(
+                    a,
+                    query,
+                    registry=registry,
+                    settings=settings,
+                    tool_provider=tool_provider,
+                    depth=0,
+                    hints=hints,
+                )
+                for a in agents
+            )
+        )
+        agent_runs = [
+            {"agent": a, "text": r.text, "tool_calls": r.tool_calls} for a, r in zip(agents, runs)
+        ]
         tool_calls = [call for r in runs for call in r.tool_calls]
         if len(runs) == 1:
             answer = runs[0].text
         else:
-            answer = await _synthesize(state["messages"], list(zip(agents, [r.text for r in runs])), settings)
+            answer = await _synthesize(
+                state["messages"], list(zip(agents, [r.text for r in runs])), settings
+            )
         return {"agent_response": answer, "tool_calls": tool_calls, "agent_runs": agent_runs}
 
     async def evaluate(state: ConversationState) -> dict[str, Any]:
@@ -103,15 +122,36 @@ def build_graph(
         recorded but advisory (``should_retry`` only retries single-agent turns).
         """
         if not settings.enable_evaluation:
-            return {"eval_result": {"pass": True, "score": None, "feedback": "evaluation disabled", "stage": "disabled"}}
+            return {
+                "eval_result": {
+                    "pass": True,
+                    "score": None,
+                    "feedback": "evaluation disabled",
+                    "stage": "disabled",
+                }
+            }
         response = state.get("agent_response") or ""
         structural = check_structural(response)
         if not structural["pass"]:
-            return {"eval_result": {"pass": False, "score": 0.0, "feedback": structural["reason"], "stage": "structural"}}
+            return {
+                "eval_result": {
+                    "pass": False,
+                    "score": 0.0,
+                    "feedback": structural["reason"],
+                    "stage": "structural",
+                }
+            }
 
         runs = state.get("agent_runs") or []
         if not runs:
-            return {"eval_result": {"pass": True, "score": 1.0, "feedback": "no rubric to judge against", "stage": "skipped"}}
+            return {
+                "eval_result": {
+                    "pass": True,
+                    "score": 1.0,
+                    "feedback": "no rubric to judge against",
+                    "stage": "skipped",
+                }
+            }
 
         force = state.get("retry_count", 0) > 0
         user_message = _last_user_message(state["messages"])
@@ -120,9 +160,21 @@ def build_graph(
             agent = run.get("agent")
             defn = registry.get(agent) if agent and agent in registry else None
             if defn is None:
-                return {"agent": agent, "pass": True, "score": 1.0, "feedback": "no rubric to judge against", "judged": False}
+                return {
+                    "agent": agent,
+                    "pass": True,
+                    "score": 1.0,
+                    "feedback": "no rubric to judge against",
+                    "judged": False,
+                }
             if not force and random.random() >= defn.judge_sample_rate:
-                return {"agent": agent, "pass": True, "score": None, "feedback": "not judged (sampled out)", "judged": False}
+                return {
+                    "agent": agent,
+                    "pass": True,
+                    "score": None,
+                    "feedback": "not judged (sampled out)",
+                    "judged": False,
+                }
             verdict = await critique(run.get("text") or "", defn, settings, user_message)
             return {"agent": agent, "judged": True, **verdict}
 
@@ -132,7 +184,10 @@ def build_graph(
     async def revise(state: ConversationState) -> dict[str, Any]:
         """Set up one retry: bump the counter and feed the critic's feedback to the agent."""
         result = state.get("eval_result") or {}
-        return {"retry_count": state.get("retry_count", 0) + 1, "eval_feedback": result.get("feedback")}
+        return {
+            "retry_count": state.get("retry_count", 0) + 1,
+            "eval_feedback": result.get("feedback"),
+        }
 
     async def save_memory(state: ConversationState) -> dict[str, Any]:
         """Layer 2 (write): extract durable facts from the turn and upsert them. Fail-silent."""
@@ -140,7 +195,9 @@ def build_graph(
         if not auto_memory_on or not owner_id:
             return {"memory_writes": []}
         user_message = _last_user_message(state["messages"])
-        written = await extract_and_upsert(memory, settings, owner_id, user_message, state.get("agent_response") or "")
+        written = await extract_and_upsert(
+            memory, settings, owner_id, user_message, state.get("agent_response") or ""
+        )
         return {"memory_writes": [{"extracted": written}]}
 
     def should_retry(state: ConversationState) -> str:
@@ -148,7 +205,9 @@ def build_graph(
         if len(state.get("current_agents") or []) > 1:
             return "save_memory"
         result = state.get("eval_result") or {}
-        if result.get("pass") is False and state.get("retry_count", 0) < state.get("max_retries", 0):
+        if result.get("pass") is False and state.get("retry_count", 0) < state.get(
+            "max_retries", 0
+        ):
             return "revise"
         return "save_memory"
 
@@ -164,7 +223,9 @@ def build_graph(
     builder.add_edge("load_memory", "route")
     builder.add_edge("route", "execute_agents")
     builder.add_edge("execute_agents", "evaluate")
-    builder.add_conditional_edges("evaluate", should_retry, {"revise": "revise", "save_memory": "save_memory"})
+    builder.add_conditional_edges(
+        "evaluate", should_retry, {"revise": "revise", "save_memory": "save_memory"}
+    )
     builder.add_edge("revise", "execute_agents")
     builder.add_edge("save_memory", END)
 
@@ -175,7 +236,13 @@ def _aggregate_evals(agent_evals: list[dict[str, Any]]) -> dict[str, Any]:
     """Combine per-agent verdicts into one ``eval_result``; fail if any judged agent fails."""
     judged = [e for e in agent_evals if e.get("judged")]
     if not judged:
-        return {"pass": True, "score": None, "feedback": "not judged (sampled out)", "stage": "skipped", "agent_evals": agent_evals}
+        return {
+            "pass": True,
+            "score": None,
+            "feedback": "not judged (sampled out)",
+            "stage": "skipped",
+            "agent_evals": agent_evals,
+        }
     overall_pass = all(e.get("pass", True) for e in judged)
     scores = [e["score"] for e in judged if e.get("score") is not None]
     failed = [e for e in judged if e.get("pass") is False]
@@ -194,21 +261,35 @@ def _aggregate_evals(agent_evals: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-async def _synthesize(messages: list[dict[str, Any]], agent_answers: list[tuple[str, str]], settings: Settings) -> str:
+async def _synthesize(
+    messages: list[dict[str, Any]], agent_answers: list[tuple[str, str]], settings: Settings
+) -> str:
     """Combine multiple agents' answers into one coherent reply."""
-    user_question = next((m.get("content", "") for m in reversed(messages) if m.get("role") == "user"), "")
+    user_question = next(
+        (m.get("content", "") for m in reversed(messages) if m.get("role") == "user"), ""
+    )
     parts = "\n\n".join(f"[{agent}] {text}" for agent, text in agent_answers)
-    model = init_chat_model(settings.model_id_for_tier("standard"), model_provider=settings.default_provider)
+    model = init_chat_model(
+        settings.model_id_for_tier("standard"), model_provider=settings.default_provider
+    )
     out = await model.ainvoke(
         [
-            {"role": "system", "content": "Combine the specialists' answers into one clear, coherent reply. Do not mention agent names."},
-            {"role": "user", "content": f"User asked:\n{user_question}\n\nSpecialist answers:\n{parts}"},
+            {
+                "role": "system",
+                "content": "Combine the specialists' answers into one clear, coherent reply. Do not mention agent names.",
+            },
+            {
+                "role": "user",
+                "content": f"User asked:\n{user_question}\n\nSpecialist answers:\n{parts}",
+            },
         ]
     )
     return message_text(out)
 
 
-def build_initial_state(message: str, conversation_id: str | None = None, owner_id: str | None = None) -> ConversationState:
+def build_initial_state(
+    message: str, conversation_id: str | None = None, owner_id: str | None = None
+) -> ConversationState:
     """Build a fresh :class:`ConversationState` for one user message."""
     return ConversationState(
         messages=[{"role": "user", "content": message}],

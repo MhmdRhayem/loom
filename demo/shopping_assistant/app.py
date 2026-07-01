@@ -9,6 +9,7 @@ Run from the repository root (``multi-agent-framework/``)::
 
     python -m uvicorn demo.shopping_assistant.app:app --reload
 """
+
 from __future__ import annotations
 
 from pathlib import Path

@@ -4,6 +4,7 @@ Catches obviously broken output (empty / whitespace / too short) before the cost
 sampled LLM critic. Intentionally minimal: the fuzzy "repeated text / markdown artifact"
 heuristics from the original plan were dropped as over-specified for the demo.
 """
+
 from __future__ import annotations
 
 _MIN_CHARS = 2

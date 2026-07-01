@@ -52,7 +52,9 @@ class RedisStore:
             raise RuntimeError("RedisStore is not open; call await store.open() first")
         return self._client
 
-    async def save_conv_state(self, conversation_id: str, state: dict[str, Any], ttl_seconds: int | None = None) -> None:
+    async def save_conv_state(
+        self, conversation_id: str, state: dict[str, Any], ttl_seconds: int | None = None
+    ) -> None:
         key = KeyPattern.conv_state(conversation_id)
         await self.client.set(key, json.dumps(state), ex=ttl_seconds)
 
@@ -60,7 +62,9 @@ class RedisStore:
         raw = await self.client.get(KeyPattern.conv_state(conversation_id))
         return json.loads(raw) if raw else None
 
-    async def set_routing_cache(self, fingerprint: str, decision: dict[str, Any], ttl_seconds: int = 300) -> None:
+    async def set_routing_cache(
+        self, fingerprint: str, decision: dict[str, Any], ttl_seconds: int = 300
+    ) -> None:
         await self.client.set(
             KeyPattern.routing_cache(fingerprint),
             json.dumps(decision),

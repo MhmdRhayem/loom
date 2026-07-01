@@ -13,6 +13,7 @@ the model or the store misbehaves, the conversation continues unaffected. The
 extractor is framework-generic — stable user facts, preferences, and corrections, not
 transient state (an order's current status, today's tracking number).
 """
+
 from __future__ import annotations
 
 import logging
@@ -44,11 +45,15 @@ _EXTRACT_INSTRUCTIONS = (
 class _Memory(BaseModel):
     topic: str = Field(description="Short stable snake_case key, e.g. 'preferred_size'.")
     content: str = Field(description="The durable fact in one short sentence.")
-    confidence: float = Field(ge=0.0, le=1.0, description="0-1 confidence this is durable and correct.")
+    confidence: float = Field(
+        ge=0.0, le=1.0, description="0-1 confidence this is durable and correct."
+    )
 
 
 class _Extraction(BaseModel):
-    memories: list[_Memory] = Field(default_factory=list, description="Durable facts; empty if none.")
+    memories: list[_Memory] = Field(
+        default_factory=list, description="Durable facts; empty if none."
+    )
 
 
 async def load_hints(memory: MemoryRepository, owner_id: str, limit: int = _MAX_HINTS) -> list[str]:
@@ -70,7 +75,9 @@ async def extract_and_upsert(
 ) -> int:
     """Extract durable facts from one turn and upsert them by topic. Returns the count written. Fail-silent → 0."""
     try:
-        model = init_chat_model(settings.model_id_for_tier("fast"), model_provider=settings.default_provider)
+        model = init_chat_model(
+            settings.model_id_for_tier("fast"), model_provider=settings.default_provider
+        )
         prompt = [
             {"role": "system", "content": _EXTRACT_INSTRUCTIONS},
             {"role": "user", "content": f"User: {user_message}\nAssistant: {agent_response}"},
@@ -90,11 +97,15 @@ async def extract_and_upsert(
             await _upsert(memory, owner_id, topic, content, mem.confidence)
             written += 1
         except Exception:  # noqa: BLE001 - one bad write must not lose the others
-            logger.warning("auto-memory upsert failed (owner=%s topic=%s)", owner_id, topic, exc_info=True)
+            logger.warning(
+                "auto-memory upsert failed (owner=%s topic=%s)", owner_id, topic, exc_info=True
+            )
     return written
 
 
-async def _upsert(memory: MemoryRepository, owner_id: str, topic: str, content: str, confidence: float) -> None:
+async def _upsert(
+    memory: MemoryRepository, owner_id: str, topic: str, content: str, confidence: float
+) -> None:
     """Update the existing memory for this (owner, topic) if present, else insert a new one."""
     existing = await memory.load_auto_memory(owner_id, topic=topic, limit=1)
     if existing:

@@ -6,6 +6,7 @@ through the memory repo. Runs on a trigger (enough memories AND long enough sinc
 run), logs the outcome to ``dream_runs``, and is fully fail-soft — on any error memory is
 just left as-is. It only ever reads/writes memory, never the catalog or the user.
 """
+
 from __future__ import annotations
 
 import logging
@@ -26,15 +27,23 @@ logger = logging.getLogger(__name__)
 class Merge(BaseModel):
     topic: str = Field(description="The single topic key to keep.")
     content: str = Field(description="The merged, deduplicated fact.")
-    drop_topics: list[str] = Field(default_factory=list, description="Other topic keys now redundant, to delete.")
+    drop_topics: list[str] = Field(
+        default_factory=list, description="Other topic keys now redundant, to delete."
+    )
 
 
 class DreamPlan(BaseModel):
-    merges: list[Merge] = Field(default_factory=list, description="Groups of duplicate memories to merge.")
-    prune_topics: list[str] = Field(default_factory=list, description="Stale/trivial topic keys to delete outright.")
+    merges: list[Merge] = Field(
+        default_factory=list, description="Groups of duplicate memories to merge."
+    )
+    prune_topics: list[str] = Field(
+        default_factory=list, description="Stale/trivial topic keys to delete outright."
+    )
 
 
-async def should_dream(memory_repo: MemoryRepository, dream_repo: DreamRepository, owner_id: str, settings: Settings) -> bool:
+async def should_dream(
+    memory_repo: MemoryRepository, dream_repo: DreamRepository, owner_id: str, settings: Settings
+) -> bool:
     """True if the owner has enough memories and it has been long enough since the last run."""
     try:
         if await memory_repo.count_auto_memory(owner_id) < settings.dream_min_memories:
@@ -42,13 +51,17 @@ async def should_dream(memory_repo: MemoryRepository, dream_repo: DreamRepositor
         last = await dream_repo.get_last_dream_run(owner_id)
         if last is None:
             return True
-        return datetime.now(timezone.utc) - last.started_at >= timedelta(hours=settings.dream_interval_hours)
+        return datetime.now(timezone.utc) - last.started_at >= timedelta(
+            hours=settings.dream_interval_hours
+        )
     except Exception:  # noqa: BLE001
         logger.warning("should_dream check failed for %s", owner_id, exc_info=True)
         return False
 
 
-async def consolidate(memory_repo: MemoryRepository, dream_repo: DreamRepository, owner_id: str, settings: Settings) -> dict[str, Any]:
+async def consolidate(
+    memory_repo: MemoryRepository, dream_repo: DreamRepository, owner_id: str, settings: Settings
+) -> dict[str, Any]:
     """Review + tidy an owner's memories (merge + prune), log a dream run. Fail-soft."""
     started = datetime.now(timezone.utc)
     clock = time.perf_counter()
@@ -58,7 +71,9 @@ async def consolidate(memory_repo: MemoryRepository, dream_repo: DreamRepository
         by_topic = {r.topic: r for r in rows}
         if rows:
             catalogue = "\n".join(f"- {r.topic}: {r.content}" for r in rows)
-            model = init_chat_model(settings.model_id_for_tier("standard"), model_provider=settings.default_provider)
+            model = init_chat_model(
+                settings.model_id_for_tier("standard"), model_provider=settings.default_provider
+            )
             system = (
                 "Tidy this list of remembered facts about one user. Merge duplicates or near-duplicates "
                 "into a single clear fact (and list the now-redundant topic keys to drop), and list stale, "

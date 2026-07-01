@@ -13,6 +13,7 @@ so writes persist: opening a ticket or starting a return survives across turns. 
 :mod:`db` for the schema and seed data. Swapping these for real integrations means
 changing only the bodies below.
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence

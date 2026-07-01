@@ -1,4 +1,5 @@
 """Platform setup that must run before any asyncio event loop is created."""
+
 from __future__ import annotations
 
 import asyncio

@@ -56,13 +56,13 @@ class Settings:
     log_level: str = "INFO"
     default_provider: str = "openai"
     # Feature flags (Phase 7) — each gates one subsystem; flip any for ablation.
-    enable_memory: bool = True        # Layer 2 auto-memory (load hints + extract)
-    enable_evaluation: bool = True    # structural + LLM critic (+ retry)
-    enable_learning: bool = True       # per-(agent,category) EMA scoring
-    enable_dreaming: bool = True       # Layer 4 consolidation
-    max_delegation_depth: int = 2    # how deep agent-to-agent calls may nest (1 disables delegation)
-    dream_min_memories: int = 8      # Layer 4: min stored memories before a consolidation run
-    dream_interval_hours: int = 24   # Layer 4: min hours between consolidation runs
+    enable_memory: bool = True  # Layer 2 auto-memory (load hints + extract)
+    enable_evaluation: bool = True  # structural + LLM critic (+ retry)
+    enable_learning: bool = True  # per-(agent,category) EMA scoring
+    enable_dreaming: bool = True  # Layer 4 consolidation
+    max_delegation_depth: int = 2  # how deep agent-to-agent calls may nest (1 disables delegation)
+    dream_min_memories: int = 8  # Layer 4: min stored memories before a consolidation run
+    dream_interval_hours: int = 24  # Layer 4: min hours between consolidation runs
     model_tiers: ModelTiers = field(default_factory=ModelTiers)
 
     @classmethod

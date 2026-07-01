@@ -5,6 +5,7 @@ success/failure counts (a per-category pass/fail tally for observability). Store
 Runs live, fail-soft, never blocks the response. A ``None`` reward (sampled-out turn) is a
 no-op.
 """
+
 from __future__ import annotations
 
 import logging
@@ -13,11 +14,13 @@ from multi_agent_framework.storage.repositories.performance import PerformanceRe
 
 logger = logging.getLogger(__name__)
 
-_EMA_ALPHA = 0.05      # weight on the newest reward
-_DEFAULT_SCORE = 0.5   # prior before any data
+_EMA_ALPHA = 0.05  # weight on the newest reward
+_DEFAULT_SCORE = 0.5  # prior before any data
 
 
-async def record_score(perf_repo: PerformanceRepository, agent: str, category: str, reward: float | None) -> None:
+async def record_score(
+    perf_repo: PerformanceRepository, agent: str, category: str, reward: float | None
+) -> None:
     """Fold one reward into ``agent``'s EMA score for ``category``. Fail-silent."""
     if reward is None or not agent:
         return
