@@ -1,15 +1,3 @@
-"""Composition root for the shopping-assistant demo.
-
-This is where the e-commerce demo is assembled: the YAML agent roster and the mock
-tools are wired into the provider-agnostic framework, producing a FastAPI ``app``.
-Nothing under ``src/multi_agent_framework`` knows about e-commerce — that knowledge
-lives here, so the framework stays demo-agnostic and reusable.
-
-Run from the repository root (``multi-agent-framework/``)::
-
-    python -m uvicorn demo.shopping_assistant.app:app --reload
-"""
-
 from __future__ import annotations
 
 from pathlib import Path
@@ -17,6 +5,7 @@ from pathlib import Path
 from multi_agent_framework.agents.registry import AgentRegistry
 from multi_agent_framework.api.main import create_app
 
+from .shop_routes import shop_router
 from .tools import get_tools
 
 # Agent definitions live next to this file; resolve regardless of the working dir.
@@ -28,3 +17,8 @@ FALLBACK_AGENT = "support_concierge"
 
 registry = AgentRegistry.from_directory(DEFINITIONS_DIR)
 app = create_app(registry, get_tools, fallback_agent=FALLBACK_AGENT)
+
+# The storefront read endpoints (/shop/*) are demo-specific, so they're mounted here
+# rather than in the framework. CORS is applied inside create_app and wraps the whole
+# app, so routers added afterward are covered too.
+app.include_router(shop_router)

@@ -1,28 +1,3 @@
-"""A small SQLAlchemy-backed mock store for the shopping-assistant demo.
-
-This is the demo's *business* backend — the external systems the agents call into
-(catalog, orders, carts, accounts, FAQ, support). It runs on the **same Postgres
-instance as the framework** (the ``postgres:18`` service in ``docker-compose.yml``,
-reached via ``DATABASE_URL``), but keeps its tables in a dedicated ``shop`` schema so
-demo business data never collides with the framework's own tables in ``public``.
-
-It uses **SQLAlchemy**, like the framework's storage layer
-(``src/multi_agent_framework/storage/models.py``), so the schema is declared with typed
-models rather than hand-written DDL. The one difference: the framework's storage is
-*async* (it's in the request path), whereas these tools are plain *synchronous*
-callables, so this module uses a **sync** engine. LangChain runs sync tools in a worker
-thread, so the event loop is never blocked.
-
-This module has **no import-time side effects** — importing it never touches the
-database. Creating the schema and inserting dummy data is a deliberate one-time step:
-run ``python -m demo.shopping_assistant.seed`` after ``docker compose up``. Because the
-store is a real database, the demo is *stateful*: opening a ticket or starting a return
-persists across turns.
-
-Layout: the engine/session, the ORM models, and one access function per tool. Seed data
-lives in ``seed.py``; ``tools.py`` is a thin layer mapping tool names to these functions.
-"""
-
 from __future__ import annotations
 
 import hashlib
@@ -48,7 +23,7 @@ SCHEMA_NAME = "shop"
 
 
 def _sync_dsn(url: str) -> str:
-    """Force the sync psycopg driver on a plain ``postgresql://`` DSN (SQLAlchemy needs the +psycopg suffix)."""
+    """Force the sync psycopg driver on a plain postgresql:// DSN (needs the +psycopg suffix)."""
     if url.startswith("postgresql://"):
         return "postgresql+psycopg://" + url[len("postgresql://") :]
     return url
@@ -163,14 +138,14 @@ class Ticket(Base):
 
 
 def create_all() -> None:
-    """Create the ``shop`` schema and all tables if missing. Idempotent."""
+    """Create the shop schema and all tables if missing. Idempotent."""
     with engine.begin() as conn:
         conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {SCHEMA_NAME}"))
         Base.metadata.create_all(conn)
 
 
 def reset() -> None:
-    """Drop the whole ``shop`` schema and its data. Used by ``seed.py --reset``."""
+    """Drop the whole shop schema and its data. Used by seed.py --reset."""
     with engine.begin() as conn:
         conn.execute(text(f"DROP SCHEMA IF EXISTS {SCHEMA_NAME} CASCADE"))
 
@@ -184,7 +159,7 @@ def _tokens(query: str) -> list[str]:
 
 
 def _next_id(session: Session, model: type[Base], prefix: str, base: int) -> str:
-    """Generate the next sequential id like ``RMA-55873`` from the existing row count."""
+    """Generate the next sequential id like RMA-55873 from the current row count."""
     count = session.scalar(select(func.count()).select_from(model)) or 0
     return f"{prefix}{base + count}"
 
@@ -437,3 +412,83 @@ def open_ticket(summary: str) -> dict[str, Any]:
             )
         )
     return {"ticket_id": ticket_id, "summary": summary, "status": "open", "queue": "human-support"}
+
+
+# --- bulk reads (for the storefront API, not the agent tools) -----------------
+#
+# These back the demo's /shop/* endpoints so the frontend can render the real
+# catalog. They return whole tables (tiny, so no pagination beyond a cap) and
+# fail soft: before ``seed.py`` runs the ``shop`` schema doesn't exist, so a query
+# would raise — we return an empty list instead, matching the framework's
+# boot-without-a-backend behavior.
+
+
+def _safe(query) -> list[dict[str, Any]]:
+    """Run a read against the shop store, returning [] if the schema isn't seeded yet."""
+    try:
+        with SessionLocal() as session:
+            return query(session)
+    except Exception:  # noqa: BLE001 - unseeded schema / unreachable DB -> empty, never 500
+        return []
+
+
+def list_products(limit: int = 100) -> list[dict[str, Any]]:
+    """Every catalog product (id, name, price, rating, stock, category, deal)."""
+
+    def q(session: Session) -> list[dict[str, Any]]:
+        rows = session.scalars(select(Product).order_by(Product.id).limit(limit)).all()
+        return [
+            {
+                "id": p.id,
+                "name": p.name,
+                "price": p.price,
+                "rating": p.rating,
+                "in_stock": p.in_stock,
+                "category": p.category,
+                "description": p.description,
+                "deal": p.deal,
+            }
+            for p in rows
+        ]
+
+    return _safe(q)
+
+
+def list_orders(limit: int = 100) -> list[dict[str, Any]]:
+    """Every order with its status and shipping details."""
+
+    def q(session: Session) -> list[dict[str, Any]]:
+        rows = session.scalars(select(Order).order_by(Order.order_id).limit(limit)).all()
+        return [
+            {
+                "order_id": o.order_id,
+                "email": o.email,
+                "status": o.status,
+                "carrier": o.carrier,
+                "tracking_number": o.tracking_number,
+                "estimated_delivery": o.estimated_delivery,
+                "placed_on": o.placed_on,
+                "total": o.total,
+            }
+            for o in rows
+        ]
+
+    return _safe(q)
+
+
+def list_coupons() -> list[dict[str, Any]]:
+    """Every coupon (code, discount, scope, minimum subtotal)."""
+
+    def q(session: Session) -> list[dict[str, Any]]:
+        rows = session.scalars(select(Coupon).order_by(Coupon.code)).all()
+        return [
+            {
+                "code": c.code,
+                "discount_pct": c.discount_pct,
+                "product_id": c.product_id,
+                "min_subtotal": c.min_subtotal,
+            }
+            for c in rows
+        ]
+
+    return _safe(q)
