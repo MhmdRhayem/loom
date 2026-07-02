@@ -1,13 +1,3 @@
-"""Create the database schema from the SQLAlchemy models.
-
-Replaces Alembic: the models in ``storage/models.py`` are the single source of
-truth. Run after Postgres is up (``docker compose up``):
-
-    python scripts/init_db.py
-
-Idempotent — safe to run repeatedly (CREATE TABLE IF NOT EXISTS).
-"""
-
 from __future__ import annotations
 
 import asyncio

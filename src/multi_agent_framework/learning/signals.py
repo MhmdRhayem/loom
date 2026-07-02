@@ -1,10 +1,3 @@
-"""Phase 6 — turn a turn's outcome into a single reward in [0, 1].
-
-Two sources: the evaluator's verdict (automatic, every judged turn) and explicit user
-feedback (thumbs up/down). Pure and tiny — no LLM, no I/O — so scoring stays cheap and
-testable. ``None`` means "no usable signal" (e.g. the critic sampled the turn out).
-"""
-
 from __future__ import annotations
 
 from typing import Any
@@ -25,12 +18,12 @@ def reward_from_eval(eval_result: dict[str, Any] | None) -> float | None:
 
 
 def reward_from_agent_eval(agent_eval: dict[str, Any] | None) -> float | None:
-    """Reward from one agent's own verdict in a multi-agent turn, or None if it carried no signal.
+    """Reward from one agent's own verdict in a multi-agent turn, or None if it had no signal.
 
-    The graph judges each agent against *its own* rubric and stores the per-agent verdicts in
-    ``eval_result['agent_evals']``. An agent that was sampled out (``judged`` False) yields no
-    signal; a judged agent yields its 0-1 score, falling back to its pass/fail when the critic
-    returned no numeric score. Mirrors :func:`reward_from_eval` for the per-agent case.
+    The graph judges each agent against its own rubric and stores the verdicts in
+    eval_result['agent_evals']. An agent that was sampled out (judged False) gives no signal;
+    a judged one gives its 0-1 score, falling back to pass/fail when the critic returned no
+    number. This is the per-agent version of reward_from_eval.
     """
     ev = agent_eval or {}
     if not ev.get("judged"):

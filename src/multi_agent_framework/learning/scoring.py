@@ -1,11 +1,3 @@
-"""Phase 6 — per-(agent, category) performance scoring via an exponential moving average.
-
-After each turn we fold the reward into the agent's EMA for the query category and bump its
-success/failure counts (a per-category pass/fail tally for observability). Stored in ``agent_performance``.
-Runs live, fail-soft, never blocks the response. A ``None`` reward (sampled-out turn) is a
-no-op.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -21,7 +13,7 @@ _DEFAULT_SCORE = 0.5  # prior before any data
 async def record_score(
     perf_repo: PerformanceRepository, agent: str, category: str, reward: float | None
 ) -> None:
-    """Fold one reward into ``agent``'s EMA score for ``category``. Fail-silent."""
+    """Fold one reward into the agent's EMA score for this category. Never raises."""
     if reward is None or not agent:
         return
     try:

@@ -1,18 +1,3 @@
-"""Build a runnable agent from a declarative ``AgentDefinition``, and run it.
-
-The registry is the catalog of definitions; this factory turns one definition
-into a live ``create_agent`` instance (:func:`build_agent`) and runs it in-process
-(:func:`run_agent`). Tier names (fast/standard/deep) resolve to provider model IDs
-via ``core/config.py``, so the YAML roster stays provider-agnostic.
-
-Agents can also call each other. With depth to spare, :func:`run_agent` hands an
-agent an ``ask_<name>`` tool for every peer; calling one is *just a tool call* that
-re-enters :func:`run_agent` one level deeper. There is no shared context, budget, or
-approval — the only guard is **depth** (``settings.max_delegation_depth``; 1 disables
-peer calls), threaded as a plain argument so nested calls can't recurse without bound.
-Everything is fail-soft: a bad run returns a short note, never an exception.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -51,8 +36,8 @@ def build_agent(
     settings: Settings,
     tools: Sequence[BaseTool | Callable[..., Any]] | None = None,
 ):
-    """Build a runnable agent for ``defn``. With no tools it is still a
-    conversational agent; with tools, ``create_agent`` runs the tool loop."""
+    """Build a runnable agent for defn. With no tools it's just conversational;
+    with tools, create_agent runs the tool loop."""
     system_prompt = build_system_prompt(
         {
             "name": defn.name,
@@ -86,11 +71,11 @@ async def run_agent(
     depth: int = 0,
     hints: list[str] | None = None,
 ) -> AgentRun:
-    """Run agent ``name`` on ``query`` in-process and return its answer. Guarded by ``depth``, fail-soft.
+    """Run agent `name` on `query` and return its answer. Bounded by depth; never raises.
 
-    With depth to spare, the agent is also handed an ``ask_<peer>`` tool for every other
-    agent; calling one is a plain tool call that re-enters ``run_agent`` one level deeper.
-    Every router-selected agent and every peer call comes through here.
+    While there's depth left, the agent also gets an ask_<peer> tool for each other agent;
+    calling one re-enters run_agent one level deeper. Every router pick and every peer call
+    goes through here.
     """
     if name not in registry:
         return AgentRun(f"(cannot run: unknown agent '{name}')")
@@ -120,7 +105,7 @@ def _ask_peer_tools(
     depth: int,
     exclude: str | None = None,
 ) -> list[Callable[..., Any]]:
-    """An ``ask_<agent>`` tool for every agent except ``exclude`` — the agent-to-agent call surface."""
+    """One ask_<agent> tool per agent except `exclude`: the agent-to-agent call surface."""
     return [
         _ask_tool(name, registry, settings, tool_provider, depth)
         for name in registry.names()
@@ -135,7 +120,7 @@ def _ask_tool(
     tool_provider: ToolProvider,
     depth: int,
 ) -> Callable[..., Any]:
-    """Build the ``ask_<name>`` tool: calling it runs ``name`` one level deeper and returns its answer."""
+    """Build the ask_<name> tool: it runs `name` one level deeper and returns its answer."""
     description = registry.get(name).description.strip()
 
     async def ask(query: str) -> str:

@@ -1,12 +1,3 @@
-"""Agent registry: load YAML agent definitions and look them up by name/capability.
-
-This is framework-level and demo-agnostic: it loads from whatever directory it is
-given (the shopping-assistant demo passes ``demo/shopping_assistant/definitions``).
-Definitions reference model *tier names* (fast/standard/deep), never provider model
-IDs — those resolve in ``core/config.py``. The registry validates structure at load
-time so a malformed roster fails fast instead of at request time.
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -74,7 +65,7 @@ class AgentRegistry:
         return registry
 
     def load_directory(self, path: str | Path, terminal_targets: set[str] | None = None) -> None:
-        """Load every ``*.yaml`` / ``*.yml`` in ``path``, validating as we go."""
+        """Load every .yaml/.yml file in the directory, validating as we go."""
         directory = Path(path)
         if not directory.is_dir():
             raise RegistryError(f"definitions directory not found: {directory}")

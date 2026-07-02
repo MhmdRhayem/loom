@@ -71,8 +71,8 @@ class MemoryRepository(Repository):
     ) -> None:
         """Revise an existing memory in place (used by the consolidation/merge step).
 
-        Only the fields you pass are changed; omitted fields are left untouched.
-        ``expires_at=None`` is honoured as an explicit "never expires".
+        Only the fields you pass are changed; omitted ones are left alone.
+        expires_at=None is honoured as an explicit "never expires".
         """
         values: dict[str, Any] = {"updated_at": func.now()}
         if content is not _UNSET:
@@ -101,9 +101,8 @@ class MemoryRepository(Repository):
     async def count_auto_memory(self, owner_id: str, include_expired: bool = False) -> int:
         """How many memories an owner has (drives the size-based dream trigger).
 
-        Counts only live (unexpired) memories by default — matching what
-        ``load_auto_memory`` returns. Pass ``include_expired=True`` for the raw
-        row count.
+        Counts only live (unexpired) memories by default, matching what
+        load_auto_memory returns. Pass include_expired=True for the raw row count.
         """
         stmt = select(func.count()).select_from(AutoMemory).where(AutoMemory.owner_id == owner_id)
         if not include_expired:

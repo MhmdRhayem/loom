@@ -1,11 +1,3 @@
-"""Stage 3 — LLM critic. Scores a response against the agent's own rubric.
-
-A separate fast-tier call returns a structured verdict. It is *sampled* per agent via
-``judge_sample_rate`` (high-stakes agents judged every turn, read-only agents rarely;
-the sampling decision lives in the graph's ``evaluate`` node). Fail-silent: if the critic
-errors or times out, the turn passes through flagged rather than blocking the user.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -21,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 class Verdict(BaseModel):
-    """Structured critic verdict (``passed`` avoids the ``pass`` keyword)."""
+    """The critic's verdict (passed avoids the pass keyword)."""
 
     passed: bool = Field(description="True if the response is acceptable to return to the user.")
     score: float = Field(ge=0.0, le=1.0, description="0-1 quality score.")
@@ -44,7 +36,7 @@ def _prompt(response: str, definition: AgentDefinition, user_message: str) -> li
 async def critique(
     response: str, definition: AgentDefinition, settings: Settings, user_message: str
 ) -> dict[str, Any]:
-    """Return ``{pass, score, feedback}``. Fail-silent: on error, pass through with a warning."""
+    """Return {pass, score, feedback}. On error, pass through with a warning instead of blocking."""
     try:
         model = init_chat_model(
             settings.model_id_for_tier("fast"), model_provider=settings.default_provider

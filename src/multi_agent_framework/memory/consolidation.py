@@ -1,12 +1,3 @@
-"""Memory Layer 4 — consolidation ("dreaming").
-
-Periodically tidies an owner's stored memories: merge duplicates / near-duplicates into one
-clear fact, and prune stale or trivial ones. An LLM proposes the plan; the code applies it
-through the memory repo. Runs on a trigger (enough memories AND long enough since the last
-run), logs the outcome to ``dream_runs``, and is fully fail-soft — on any error memory is
-just left as-is. It only ever reads/writes memory, never the catalog or the user.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -62,7 +53,7 @@ async def should_dream(
 async def consolidate(
     memory_repo: MemoryRepository, dream_repo: DreamRepository, owner_id: str, settings: Settings
 ) -> dict[str, Any]:
-    """Review + tidy an owner's memories (merge + prune), log a dream run. Fail-soft."""
+    """Tidy an owner's memories (merge and prune) and log a dream run. Never raises."""
     started = datetime.now(timezone.utc)
     clock = time.perf_counter()
     merged = pruned = 0

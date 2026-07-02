@@ -1,19 +1,3 @@
-"""Layer 2 — Auto Memory: durable, owner-scoped facts surfaced as hints.
-
-Cross-session personalization. Two halves, both fail-silent:
-
-* :func:`load_hints` — at the start of a turn, read an owner's stored memories and
-  return them as short hint strings to inject into the agent's context.
-* :func:`extract_and_upsert` — after the turn, ask a cheap model to pull any new
-  *durable* facts and upsert them keyed by topic (so "size: M" stated twice updates
-  one row instead of piling up — which is what lets us defer Layer 4 consolidation).
-
-Memory is a *hint*, never ground truth. Every operation swallows its own errors: if
-the model or the store misbehaves, the conversation continues unaffected. The
-extractor is framework-generic — stable user facts, preferences, and corrections, not
-transient state (an order's current status, today's tracking number).
-"""
-
 from __future__ import annotations
 
 import logging
@@ -57,7 +41,7 @@ class _Extraction(BaseModel):
 
 
 async def load_hints(memory: MemoryRepository, owner_id: str, limit: int = _MAX_HINTS) -> list[str]:
-    """Return an owner's stored memories as ``"topic: content"`` hint strings. Fail-silent → []."""
+    """Return an owner's stored memories as "topic: content" hint strings. Returns [] on error."""
     try:
         rows = await memory.load_auto_memory(owner_id, limit=limit)
         return [f"{row.topic}: {row.content}" for row in rows]
@@ -73,7 +57,7 @@ async def extract_and_upsert(
     user_message: str,
     agent_response: str,
 ) -> int:
-    """Extract durable facts from one turn and upsert them by topic. Returns the count written. Fail-silent → 0."""
+    """Pull durable facts from a turn and upsert them by topic; returns the count written."""
     try:
         model = init_chat_model(
             settings.model_id_for_tier("fast"), model_provider=settings.default_provider

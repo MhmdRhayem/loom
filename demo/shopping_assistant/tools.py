@@ -1,19 +1,3 @@
-"""E-commerce tools for the shopping-assistant demo.
-
-Each tool is a thin wrapper over the demo's Postgres-backed store in :mod:`db`: the
-function here owns the tool's *contract* (name, signature, docstring) while ``db.py``
-owns the data and the query. The framework binds tools by *name* — every agent YAML
-lists tool names, and :func:`get_tools` maps those names to the callables below. A plain
-function with type hints and a docstring is a valid LangChain tool: ``create_agent``
-derives the schema from the signature and the description from the docstring, so the
-wording here is what the model sees.
-
-The store is a real database (``shop`` schema on the same Postgres as the framework),
-so writes persist: opening a ticket or starting a return survives across turns. See
-:mod:`db` for the schema and seed data. Swapping these for real integrations means
-changing only the bodies below.
-"""
-
 from __future__ import annotations
 
 from collections.abc import Sequence

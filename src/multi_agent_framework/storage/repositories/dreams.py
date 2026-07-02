@@ -21,11 +21,10 @@ class DreamRepository(Repository):
         duration_ms: int,
         started_at: datetime | None = None,
     ) -> UUID:
-        """Record the outcome of one completed consolidation pass.
+        """Record the outcome of one finished consolidation pass.
 
-        Called when the run finishes, so pass ``started_at`` (captured when the
-        run began) to record the true start time. If omitted, the DB stamps the
-        insert time instead — which is the finish moment, not the start.
+        Pass started_at (captured when the run began) to record the true start time;
+        if omitted, the DB stamps the insert time, which is the finish, not the start.
         """
         values: dict = {
             "owner_id": owner_id,
@@ -43,9 +42,9 @@ class DreamRepository(Repository):
             return run.id
 
     async def get_last_dream_run(self, owner_id: str) -> DreamRun | None:
-        """Most recent dream run for an owner, or None if it has never dreamed.
+        """Most recent dream run for an owner, or None if it never has.
 
-        Used by the scheduler to decide whether it is time to dream again.
+        Used to decide whether it's time to dream again.
         """
         stmt = (
             select(DreamRun)

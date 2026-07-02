@@ -1,20 +1,3 @@
-"""Seed the demo shop database with dummy e-commerce data.
-
-This is the deliberate one-time setup step for the shopping-assistant demo's store
-(see :mod:`db`). It is kept out of the import path on purpose: importing the framework
-or the tools never touches the database; you run this once, by hand, after the Postgres
-service is up.
-
-Usage (from the repository root, ``multi-agent-framework/``)::
-
-    docker compose up -d postgres
-    python -m demo.shopping_assistant.seed            # create schema + insert if empty
-    python -m demo.shopping_assistant.seed --reset    # drop everything first, then reseed
-
-Seeding is idempotent: if products already exist it does nothing, so it is safe to run
-again. ``--reset`` drops the whole ``shop`` schema first for a clean slate.
-"""
-
 from __future__ import annotations
 
 import argparse

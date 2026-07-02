@@ -1,19 +1,3 @@
-"""The conversation pipeline as a LangGraph.
-
-    load_memory → route → execute_agents → evaluate → save_memory → END
-                               ^                 |
-                               +---- revise -----+   (failing, retryable single-agent eval)
-
-``route`` picks one or more agents. All run in parallel via ``run_agent``; if more
-than one, their answers are synthesized into a single reply. Any agent can also call
-a peer mid-task via an ``ask_<name>`` tool — every agent run goes through
-``run_agent``, bounded by the turn's delegation depth. ``evaluate`` is a structural
-check + a sampled LLM critic; a failing single-agent turn retries once with feedback.
-Memory load/save wrap it.
-
-Dependency-injected: build_graph(registry, settings, tool_provider, fallback_agent, memory).
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -49,12 +33,12 @@ def build_graph(
     fallback_agent: str | None = None,
     memory: "MemoryRepository | None" = None,
 ):
-    """Compile and return the conversation graph wired to ``registry`` + ``settings``."""
+    """Compile and return the conversation graph wired to the registry and settings."""
 
     auto_memory_on = settings.enable_memory and memory is not None
 
     async def load_memory(state: ConversationState) -> dict[str, Any]:
-        """Layer 2 (read): surface the owner's stored memories as hints. Fail-silent."""
+        """Surface the owner's stored memories as hints. Never raises."""
         owner_id = state.get("owner_id")
         if not auto_memory_on or not owner_id:
             return {"auto_memory_hints": []}
@@ -113,13 +97,13 @@ def build_graph(
         return {"agent_response": answer, "tool_calls": tool_calls, "agent_runs": agent_runs}
 
     async def evaluate(state: ConversationState) -> dict[str, Any]:
-        """Phase 4: structural check on the reply, then judge each agent's own answer.
+        """Structural check on the reply, then judge each agent's own answer.
 
-        The structural gate runs once on the synthesized reply. The LLM critic then judges
-        *each* agent's raw answer against *that agent's* rubric, sampled per-agent. Verdicts
-        are aggregated: the turn fails if any judged agent fails. For a single-agent turn the
-        raw answer is the reply, so this is the retryable path; multi-agent verdicts are
-        recorded but advisory (``should_retry`` only retries single-agent turns).
+        The structural gate runs once on the synthesized reply. The critic then judges each
+        agent's raw answer against that agent's rubric, sampled per agent, and the verdicts
+        are aggregated so the turn fails if any judged agent fails. For a single-agent turn
+        the raw answer is the reply, so that's the retryable path; multi-agent verdicts are
+        recorded but advisory (should_retry only retries single-agent turns).
         """
         if not settings.enable_evaluation:
             return {
@@ -190,7 +174,7 @@ def build_graph(
         }
 
     async def save_memory(state: ConversationState) -> dict[str, Any]:
-        """Layer 2 (write): extract durable facts from the turn and upsert them. Fail-silent."""
+        """Extract durable facts from the turn and upsert them. Never raises."""
         owner_id = state.get("owner_id")
         if not auto_memory_on or not owner_id:
             return {"memory_writes": []}
@@ -201,7 +185,7 @@ def build_graph(
         return {"memory_writes": [{"extracted": written}]}
 
     def should_retry(state: ConversationState) -> str:
-        """Route a failing single-agent eval through ``revise``; multi-agent turns skip retry."""
+        """Send a failing single-agent eval to revise; multi-agent turns skip retry."""
         if len(state.get("current_agents") or []) > 1:
             return "save_memory"
         result = state.get("eval_result") or {}
@@ -233,7 +217,7 @@ def build_graph(
 
 
 def _aggregate_evals(agent_evals: list[dict[str, Any]]) -> dict[str, Any]:
-    """Combine per-agent verdicts into one ``eval_result``; fail if any judged agent fails."""
+    """Combine per-agent verdicts into one eval_result; fail if any judged agent fails."""
     judged = [e for e in agent_evals if e.get("judged")]
     if not judged:
         return {
@@ -290,7 +274,7 @@ async def _synthesize(
 def build_initial_state(
     message: str, conversation_id: str | None = None, owner_id: str | None = None
 ) -> ConversationState:
-    """Build a fresh :class:`ConversationState` for one user message."""
+    """Build a fresh ConversationState for one user message."""
     return ConversationState(
         messages=[{"role": "user", "content": message}],
         conversation_id=conversation_id or str(uuid.uuid4()),
@@ -314,7 +298,7 @@ def build_initial_state(
 
 
 def _last_user_message(messages: Sequence[dict[str, Any]]) -> str:
-    """The most recent user-authored message text (what the critic + memory read)."""
+    """The most recent user message text (what the critic and memory read)."""
     for message in reversed(messages):
         if message.get("role") == "user":
             return str(message.get("content", ""))

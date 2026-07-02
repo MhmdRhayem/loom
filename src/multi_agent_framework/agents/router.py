@@ -1,14 +1,3 @@
-"""LLM router: pick the best agent(s) for a turn.
-
-The router shows the model the registry's compact agent menu (name, description,
-capabilities) and the recent conversation, then asks for a structured decision:
-which agents (one or more), how confident, and why. Post-checks keep it safe:
-
-* unknown agent names are dropped; and
-* if no valid agents remain (or confidence is too low), fall back to
-  ``fallback_agent`` when configured.
-"""
-
 from __future__ import annotations
 
 from typing import Any
@@ -36,7 +25,7 @@ _INSTRUCTIONS = (
 
 
 class RouterDecision(BaseModel):
-    """Structured routing decision returned by the model."""
+    """The routing decision we ask the model to return."""
 
     agents: list[str] = Field(
         description="One or more exact agent names from the menu, ordered by relevance."
@@ -97,9 +86,9 @@ def _validate(
     fallback_agent: str | None = None,
     min_confidence: float = _DEFAULT_MIN_CONFIDENCE,
 ) -> list[str]:
-    """Return a validated list of agent names, applying fallback rules.
+    """Validate the model's picks and apply the fallback rules.
 
-    Pure (no I/O), so routing policy is unit-testable without an LLM call.
+    Pure and I/O-free, so the routing policy can be tested without an LLM call.
     """
     has_fallback = bool(fallback_agent) and fallback_agent in registry
     valid = [a for a in decision.agents if a in registry]
