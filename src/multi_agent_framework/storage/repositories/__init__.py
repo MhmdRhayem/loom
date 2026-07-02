@@ -1,3 +1,4 @@
+from multi_agent_framework.storage.repositories.analytics import AnalyticsRepository
 from multi_agent_framework.storage.repositories.conversations import (
     ConversationRepository,
     TurnRecord,
@@ -9,6 +10,7 @@ from multi_agent_framework.storage.repositories.performance import (
 )
 
 __all__ = [
+    "AnalyticsRepository",
     "ConversationRepository",
     "TurnRecord",
     "MemoryRepository",

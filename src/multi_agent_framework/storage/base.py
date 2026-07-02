@@ -12,7 +12,7 @@ from multi_agent_framework.storage.models import Base
 
 
 def _normalize_dsn(url: str) -> str:
-    """Force the async psycopg driver on a plain ``postgresql://`` DSN."""
+    """Force the async psycopg driver on a plain postgresql:// DSN."""
     if url.startswith("postgresql://"):
         return "postgresql+psycopg://" + url[len("postgresql://") :]
     return url
@@ -21,9 +21,9 @@ def _normalize_dsn(url: str) -> str:
 class Repository:
     """Base class for domain repositories.
 
-    Each repository owns the read/write functions for one area of the schema
-    (conversations, memory, performance, dreams). They all share a single
-    connection pool, handed in as a sessionmaker.
+    Each repository owns the reads and writes for one area of the schema
+    (conversations, memory, performance, dreams), sharing one connection pool
+    handed in as a sessionmaker.
     """
 
     def __init__(self, sessionmaker: async_sessionmaker[AsyncSession]) -> None:
@@ -36,8 +36,7 @@ class Repository:
 class Database:
     """Owns the Postgres connection pool and exposes the domain repositories.
 
-    Usage::
-
+    Usage:
         db = Database(settings.database_url)
         await db.open()
         conv_id = await db.conversations.create_conversation(owner_id="shopper:42")
@@ -57,6 +56,7 @@ class Database:
         self.memory: "MemoryRepository" = None  # type: ignore[assignment]
         self.performance: "PerformanceRepository" = None  # type: ignore[assignment]
         self.dreams: "DreamRepository" = None  # type: ignore[assignment]
+        self.analytics: "AnalyticsRepository" = None  # type: ignore[assignment]
 
     async def open(self) -> None:
         if self._engine is not None:
@@ -73,13 +73,14 @@ class Database:
         self.memory = MemoryRepository(self._sessionmaker)
         self.performance = PerformanceRepository(self._sessionmaker)
         self.dreams = DreamRepository(self._sessionmaker)
+        self.analytics = AnalyticsRepository(self._sessionmaker)
 
     async def ping(self) -> None:
-        """Run ``SELECT 1`` to confirm the pool can reach Postgres.
+        """Run SELECT 1 to confirm the pool can reach Postgres.
 
-        ``open()`` only builds the engine lazily and never connects, so this is
-        the cheapest way to verify the backend is actually reachable (used at
-        startup and by the health check).
+        open() builds the engine lazily and never connects, so this is the cheapest
+        way to check the backend is actually reachable (used at startup and by the
+        health check).
         """
         if self._engine is None:
             raise RuntimeError("Database is not open; call await db.open() first")
@@ -87,11 +88,11 @@ class Database:
             await conn.execute(text("SELECT 1"))
 
     async def create_all(self) -> None:
-        """Create every table defined on the models if missing (idempotent).
+        """Create any missing tables defined on the models (idempotent).
 
-        Replaces Alembic: ``models.py`` is the single source of truth for the
-        schema. Suitable for a single-developer project with no production
-        data to preserve.
+        We use this instead of Alembic: models.py is the single source of truth
+        for the schema, which is fine for a single-developer project with no
+        production data to preserve.
         """
         if self._engine is None:
             raise RuntimeError("Database is not open; call await db.open() first")
@@ -108,6 +109,7 @@ class Database:
 
 # Imported for the type hints above; placed at the bottom to avoid the
 # circular import at module load time.
+from multi_agent_framework.storage.repositories.analytics import AnalyticsRepository  # noqa: E402
 from multi_agent_framework.storage.repositories.conversations import ConversationRepository  # noqa: E402
 from multi_agent_framework.storage.repositories.dreams import DreamRepository  # noqa: E402
 from multi_agent_framework.storage.repositories.memory import MemoryRepository  # noqa: E402
