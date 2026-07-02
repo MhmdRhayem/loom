@@ -17,6 +17,7 @@ class TurnRecord:
     turn_number: int
     user_message: str
     agent_name: str | None = None
+    query_category: str | None = None
     routing_confidence: float | None = None
     agent_response: str | None = None
     eval_score: float | None = None
@@ -31,7 +32,7 @@ class TurnRecord:
 
 @dataclass
 class TurnAgentRecord:
-    """One participating agent's per-turn contribution (a ``turn_agents`` row)."""
+    """One participating agent's per-turn contribution (a turn_agents row)."""
 
     agent_name: str
     model_tier: str | None = None
@@ -101,6 +102,7 @@ class ConversationRepository(Repository):
         owner_id: str,
         user_message: str,
         agent_name: str | None = None,
+        query_category: str | None = None,
         routing_confidence: float | None = None,
         agent_response: str | None = None,
         eval_score: float | None = None,
@@ -112,8 +114,8 @@ class ConversationRepository(Repository):
         """Ensure the conversation exists, then append a turn with an auto-assigned number.
 
         Convenience for the request path (ensure -> number -> insert); returns the turn id.
-        ``agents`` is the per-agent breakdown (one row per agent that ran this turn); pass it
-        for every turn so single- and multi-agent turns are recorded uniformly.
+        agents is the per-agent breakdown (one row per agent that ran); pass it for every
+        turn so single- and multi-agent turns are recorded the same way.
         """
         await self.ensure_conversation(conversation_id, owner_id)
         turn = TurnRecord(
@@ -121,6 +123,7 @@ class ConversationRepository(Repository):
             turn_number=await self.next_turn_number(conversation_id),
             user_message=user_message,
             agent_name=agent_name,
+            query_category=query_category,
             routing_confidence=routing_confidence,
             agent_response=agent_response,
             eval_score=eval_score,
@@ -134,7 +137,7 @@ class ConversationRepository(Repository):
         return turn_id
 
     async def add_turn_agents(self, turn_id: int, agents: list[TurnAgentRecord]) -> None:
-        """Append the per-agent breakdown for a turn (one ``turn_agents`` row per agent)."""
+        """Append the per-agent breakdown for a turn (one turn_agents row per agent)."""
         if not agents:
             return
         async with self._session() as session, session.begin():

@@ -1,15 +1,3 @@
-"""Application service layer: the request path, composed end to end.
-
-Sits above the subsystems (``core`` graph, ``storage`` repositories, ``learning``
-scoring, ``memory`` consolidation) and below the HTTP layer. Each function takes its
-dependencies explicitly — no FastAPI ``Request`` — so the API routes stay thin (pull
-deps off ``app.state`` → call a service function → map the result to a response model)
-and the orchestration here is unit-testable without a running server.
-
-Telemetry and learning are best-effort: a persistence failure is logged, never raised,
-so it can't break the user-facing reply.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -38,12 +26,19 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class TurnOutcome:
-    """What the ``/chat`` route needs to build its response (framework-side, FastAPI-free)."""
+    """Everything the /chat route needs to build its response."""
 
     conversation_id: str
     agents: list[str]
     response: str | None
     eval: dict | None
+    # Orchestration trace (already computed on the graph state; surfaced for the client).
+    routing_confidence: float | None = None
+    routing_reason: str | None = None
+    query_category: str | None = None
+    tool_calls: list[dict] = field(default_factory=list)
+    agent_runs: list[dict] = field(default_factory=list)
+    retry_count: int = 0
 
 
 @dataclass
@@ -69,10 +64,10 @@ async def run_turn(
     conversation_id: str | None,
     owner_id: str | None,
 ) -> TurnOutcome:
-    """Run one user message through the graph, then record telemetry + learning.
+    """Run one message through the graph, then record telemetry and learning.
 
-    ``graph`` is required; ``db`` may be ``None`` (Postgres unreachable at boot), in which
-    case the turn still runs and only persistence is skipped.
+    If db is None (Postgres was down at boot) the turn still runs and only
+    persistence is skipped.
     """
     state = build_initial_state(message, conversation_id, owner_id)
 
@@ -95,6 +90,12 @@ async def run_turn(
         agents=result.get("current_agents") or [],
         response=result.get("agent_response"),
         eval=result.get("eval_result"),
+        routing_confidence=result.get("routing_confidence"),
+        routing_reason=result.get("routing_reason"),
+        query_category=result.get("query_category"),
+        tool_calls=result.get("tool_calls") or [],
+        agent_runs=result.get("agent_runs") or [],
+        retry_count=result.get("retry_count", 0) or 0,
     )
 
 
@@ -108,8 +109,8 @@ async def _persist_turn(
     result: dict,
     latency_ms: int,
 ) -> None:
-    """Persist this turn to Postgres and fold its learning signal. Fail-soft: telemetry
-    must never break the response."""
+    """Persist this turn and fold in its learning signal. Never raises, so telemetry
+    can't break the response."""
     if db is None:
         return
     try:
@@ -147,6 +148,7 @@ async def _persist_turn(
             user_message=message,
             agent_name=primary,
             routing_confidence=result.get("routing_confidence"),
+            query_category=result.get("query_category"),
             agent_response=result.get("agent_response"),
             eval_score=eval_result.get("score"),
             retry_count=result.get("retry_count", 0) or 0,
@@ -173,7 +175,7 @@ async def _persist_turn(
 async def record_feedback(
     *, db: "Database | None", conversation_id: str, rating: str
 ) -> FeedbackOutcome:
-    """Record explicit thumbs feedback for a conversation's last turn (Phase 6 signal). Fail-soft."""
+    """Record a thumbs rating against the conversation's last turn. Never raises."""
     reward = reward_from_feedback(rating)
     if db is None or reward is None:
         return FeedbackOutcome(recorded=False)
@@ -198,7 +200,7 @@ async def record_feedback(
 async def run_dream(
     *, db: "Database | None", settings: "Settings | None", owner_id: str, force: bool = False
 ) -> DreamOutcome:
-    """Run memory consolidation ("dreaming") for an owner — when due, or force=true (Layer 4)."""
+    """Run memory consolidation for an owner, when it's due or force is set."""
     if db is None or settings is None or not settings.enable_dreaming:
         return DreamOutcome(ran=False)
     if not force and not await should_dream(db.memory, db.dreams, owner_id, settings):

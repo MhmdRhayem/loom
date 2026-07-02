@@ -1,17 +1,12 @@
-"""HTTP routes: health check and the chat/feedback/dream endpoints.
-
-Thin by design: each endpoint pulls its dependencies off ``app.state`` and hands off to a
-function in :mod:`multi_agent_framework.service`, then maps the result to a response model.
-The orchestration (graph invocation, telemetry, learning, consolidation) lives in the
-service layer, not here.
-"""
-
 from __future__ import annotations
 
 from fastapi import APIRouter, Request
 
 from multi_agent_framework import service
 from multi_agent_framework.api.models import (
+    AgentInfo,
+    AgentRun,
+    AgentsResponse,
     ChatRequest,
     ChatResponse,
     DreamResponse,
@@ -25,7 +20,7 @@ router = APIRouter()
 
 @router.get("/health", response_model=HealthResponse)
 async def health(request: Request) -> HealthResponse:
-    """Liveness + dependency check. Fail-soft: reports component status, never raises."""
+    """Liveness and dependency check. Reports component status, never raises."""
     components: dict[str, str] = {}
 
     redis_store = getattr(request.app.state, "redis", None)
@@ -52,6 +47,32 @@ async def health(request: Request) -> HealthResponse:
     return HealthResponse(status=status, components=components)
 
 
+@router.get("/agents", response_model=AgentsResponse)
+async def agents(request: Request) -> AgentsResponse:
+    """The agent roster (name, role, capabilities, tools, tier, fallback) for the UI."""
+    registry = getattr(request.app.state, "registry", None)
+    if registry is None:
+        return AgentsResponse(agents=[], fallback_agent=None)
+    infos = [
+        AgentInfo(
+            name=defn.name,
+            description=defn.description,
+            capabilities=list(defn.capabilities),
+            tools=list(defn.tools),
+            model=defn.model,
+            max_tokens=defn.max_tokens,
+            eval_rubric=list(defn.eval_rubric),
+            judge_sample_rate=defn.judge_sample_rate,
+            fallback_agent=defn.fallback_agent,
+            memory_scope=defn.memory_scope,
+        )
+        for defn in registry.all()
+    ]
+    return AgentsResponse(
+        agents=infos, fallback_agent=getattr(request.app.state, "fallback_agent", None)
+    )
+
+
 @router.post("/chat", response_model=ChatResponse)
 async def chat(request: Request, payload: ChatRequest) -> ChatResponse:
     """Send one user message through the full graph and return the result."""
@@ -70,12 +91,19 @@ async def chat(request: Request, payload: ChatRequest) -> ChatResponse:
         agent=", ".join(outcome.agents),
         response=outcome.response,
         eval=outcome.eval,
+        current_agents=outcome.agents,
+        routing_confidence=outcome.routing_confidence,
+        routing_reason=outcome.routing_reason,
+        query_category=outcome.query_category,
+        tool_calls=outcome.tool_calls,
+        agent_runs=[AgentRun(**run) for run in outcome.agent_runs],
+        retry_count=outcome.retry_count,
     )
 
 
 @router.post("/feedback", response_model=FeedbackResponse)
 async def feedback(request: Request, payload: FeedbackRequest) -> FeedbackResponse:
-    """Record explicit thumbs feedback for a conversation's last turn (Phase 6 signal). Fail-soft."""
+    """Record a thumbs rating against the conversation's last turn. Never raises."""
     outcome = await service.record_feedback(
         db=getattr(request.app.state, "db", None),
         conversation_id=payload.conversation_id,
@@ -89,7 +117,7 @@ async def feedback(request: Request, payload: FeedbackRequest) -> FeedbackRespon
 
 @router.post("/dream", response_model=DreamResponse)
 async def dream(request: Request, owner_id: str, force: bool = False) -> DreamResponse:
-    """Run memory consolidation ("dreaming") for an owner — when due, or force=true (Layer 4)."""
+    """Run memory consolidation for an owner, when it's due or force is set."""
     outcome = await service.run_dream(
         db=getattr(request.app.state, "db", None),
         settings=getattr(request.app.state, "settings", None),

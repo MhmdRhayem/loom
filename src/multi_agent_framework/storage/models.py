@@ -63,6 +63,7 @@ class ConversationTurn(Base):
     turn_number: Mapped[int] = mapped_column(Integer, nullable=False)
     user_message: Mapped[str] = mapped_column(Text, nullable=False)
     agent_name: Mapped[str | None] = mapped_column(Text)
+    query_category: Mapped[str | None] = mapped_column(Text)
     routing_confidence: Mapped[Decimal | None] = mapped_column(Numeric(4, 3))
     agent_response: Mapped[str | None] = mapped_column(Text)
     eval_score: Mapped[Decimal | None] = mapped_column(Numeric(4, 3))
@@ -86,9 +87,9 @@ class ConversationTurn(Base):
 class TurnAgent(Base):
     """One agent's contribution to a single turn (one row per participating agent).
 
-    A turn's ``conversation_turns`` row holds the user-facing reply (a single agent's answer,
-    or the synthesis of several) and the overall verdict. This child table records what *each*
-    agent that ran contributed, so telemetry and feedback attribute per-agent rather than
+    The conversation_turns row holds the user-facing reply (a single agent's answer, or the
+    synthesis of several) and the overall verdict. This child table records what each agent
+    that ran contributed, so telemetry and feedback can attribute per agent instead of
     collapsing a multi-agent turn onto its first agent.
     """
 
