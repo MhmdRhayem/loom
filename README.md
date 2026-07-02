@@ -1,4 +1,6 @@
-# multi-agent-framework
+# Loom
+
+*Weave many specialist LLM agents into one answer.*
 
 A reusable core for multi-agent LLM assistants: an LLM **router** picks one agent per
 turn, agents are **declarative YAML** (not Python subclasses), and tools are **plain
