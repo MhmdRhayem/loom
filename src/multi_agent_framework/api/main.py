@@ -1,17 +1,3 @@
-"""FastAPI application factory.
-
-``create_app`` is the framework's entry point. It is demo-agnostic: the caller (a
-composition root such as ``demo/shopping_assistant/app.py``) passes the agent
-``registry`` and a ``tool_provider``, and this module wires them into the graph.
-
-The lifespan handler builds the conversation graph and opens the Postgres and Redis
-connections on startup, closing them on shutdown. Storage init is fail-soft: if a
-backend is unreachable the app still boots and ``/health`` reports the degraded
-component. Run the demo from the repo root with::
-
-    python -m uvicorn demo.shopping_assistant.app:app --reload
-"""
-
 from __future__ import annotations
 
 import logging
@@ -20,9 +6,11 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from multi_agent_framework._platform import configure_async_runtime
 from multi_agent_framework.agents.registry import AgentRegistry
+from multi_agent_framework.api.analytics_routes import router as analytics_router
 from multi_agent_framework.api.routes import router
 from multi_agent_framework.core.config import Settings
 from multi_agent_framework.core.graph import build_graph
@@ -44,13 +32,14 @@ def create_app(
     *,
     fallback_agent: str | None = None,
 ) -> FastAPI:
-    """Build the FastAPI app for a given agent ``registry`` and ``tool_provider``."""
+    """Build the FastAPI app for a given agent registry and tool_provider."""
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         settings = Settings.from_env()
         app.state.settings = settings
         app.state.registry = registry
+        app.state.fallback_agent = fallback_agent
 
         db: Database | None = Database(settings.database_url)
         try:
@@ -89,5 +78,21 @@ def create_app(
                 await redis_store.close()
 
     app = FastAPI(title="Multi-Agent Framework", version="0.1.0", lifespan=lifespan)
+
+    # CORS is read from the environment at build time: app.state.settings is only
+    # populated once the lifespan startup runs, which is after middleware is added.
+    # A lone "*" allows any origin (dev convenience) and disables credentials, since
+    # the two cannot be combined per the CORS spec.
+    origins = list(Settings.from_env().cors_allow_origins)
+    allow_all = origins == ["*"]
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins,
+        allow_credentials=not allow_all,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
     app.include_router(router)
+    app.include_router(analytics_router)
     return app

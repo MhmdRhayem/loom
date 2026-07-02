@@ -3,9 +3,18 @@ from dataclasses import dataclass, field
 
 
 def _flag(name: str, default: bool = True) -> bool:
-    """Read a boolean feature flag from the environment (defaults to ``default``)."""
+    """Read a boolean feature flag from the environment (defaults to the given default)."""
     raw = os.environ.get(name, "true" if default else "false")
     return raw.strip().lower() not in ("0", "false", "no", "off")
+
+
+def _csv(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
+    """Read a comma-separated list from the environment (falls back to the given default)."""
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    parts = tuple(p.strip() for p in raw.split(",") if p.strip())
+    return parts or default
 
 
 @dataclass(frozen=True)
@@ -19,21 +28,21 @@ class ProviderModels:
 class ModelTiers:
     # Tier -> exact model ID per provider. THE single swap surface: agent YAMLs
     # reference tier names (fast/standard/deep), never model IDs, so flipping
-    # default_provider swaps the whole fleet. Anthropic IDs are authoritative;
-    # OpenAI/Google IDs are best-available 2026 figures and MUST be verified
-    # against the live API at integration (hence the VERIFY markers).
+    # default_provider swaps the whole fleet. Anthropic + OpenAI IDs verified
+    # 2026-07-02 (OpenAI against the live /v1/models API); Google IDs are still
+    # unverified best guesses (hence the VERIFY markers).
     anthropic: ProviderModels = field(
         default_factory=lambda: ProviderModels(
             fast="claude-haiku-4-5",
-            standard="claude-sonnet-4-6",
+            standard="claude-sonnet-5",
             deep="claude-opus-4-8",
         )
     )
     openai: ProviderModels = field(
         default_factory=lambda: ProviderModels(
-            fast="gpt-5.4-mini",  # VERIFY (post-cutoff)
-            standard="gpt-5.4",  # VERIFY (post-cutoff)
-            deep="gpt-5.5",  # VERIFY (post-cutoff; replaces phantom gpt-5-pro)
+            fast="gpt-5.4-mini",
+            standard="gpt-5.4",
+            deep="gpt-5.5",
         )
     )
     google: ProviderModels = field(
@@ -54,7 +63,7 @@ class Settings:
     redis_url: str
     app_env: str = "development"
     log_level: str = "INFO"
-    default_provider: str = "openai"
+    default_provider: str = "anthropic"
     # Feature flags (Phase 7) — each gates one subsystem; flip any for ablation.
     enable_memory: bool = True  # Layer 2 auto-memory (load hints + extract)
     enable_evaluation: bool = True  # structural + LLM critic (+ retry)
@@ -63,6 +72,9 @@ class Settings:
     max_delegation_depth: int = 2  # how deep agent-to-agent calls may nest (1 disables delegation)
     dream_min_memories: int = 8  # Layer 4: min stored memories before a consolidation run
     dream_interval_hours: int = 24  # Layer 4: min hours between consolidation runs
+    # Browser origins allowed to call the API (the Vite dev server by default). A single
+    # "*" entry allows any origin (dev only — cannot be combined with credentials).
+    cors_allow_origins: tuple[str, ...] = ("http://localhost:5173", "http://127.0.0.1:5173")
     model_tiers: ModelTiers = field(default_factory=ModelTiers)
 
     @classmethod
@@ -86,6 +98,10 @@ class Settings:
             max_delegation_depth=int(os.environ.get("MAX_DELEGATION_DEPTH", "2")),
             dream_min_memories=int(os.environ.get("DREAM_MIN_MEMORIES", "8")),
             dream_interval_hours=int(os.environ.get("DREAM_INTERVAL_HOURS", "24")),
+            cors_allow_origins=_csv(
+                "CORS_ALLOW_ORIGINS",
+                ("http://localhost:5173", "http://127.0.0.1:5173"),
+            ),
         )
 
     def model_id_for_tier(self, tier: str) -> str:
