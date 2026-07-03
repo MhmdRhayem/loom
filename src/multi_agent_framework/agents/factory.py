@@ -70,12 +70,14 @@ async def run_agent(
     tool_provider: ToolProvider,
     depth: int = 0,
     hints: list[str] | None = None,
+    history: list[dict[str, Any]] | None = None,
 ) -> AgentRun:
     """Run agent `name` on `query` and return its answer. Bounded by depth; never raises.
 
-    While there's depth left, the agent also gets an ask_<peer> tool for each other agent;
-    calling one re-enters run_agent one level deeper. Every router pick and every peer call
-    goes through here.
+    history is the conversation before this query (router-picked runs get it; peer calls
+    stay self-contained). While there's depth left, the agent also gets an ask_<peer> tool
+    for each other agent; calling one re-enters run_agent one level deeper. Every router
+    pick and every peer call goes through here.
     """
     if name not in registry:
         return AgentRun(f"(cannot run: unknown agent '{name}')")
@@ -87,7 +89,7 @@ async def run_agent(
         tools = tools + _ask_peer_tools(registry, settings, tool_provider, depth + 1, exclude=name)
 
     agent = build_agent(defn, settings, tools)
-    base = [{"role": "user", "content": query}]
+    base = [*(history or []), {"role": "user", "content": query}]
     messages = build_messages(base, {}, hints) if hints else base
     try:
         result = await agent.ainvoke({"messages": messages})

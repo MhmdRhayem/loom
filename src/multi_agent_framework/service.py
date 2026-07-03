@@ -23,6 +23,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# How many stored turns get replayed into the model's context when a conversation
+# continues (each turn is a user + assistant message pair).
+_MAX_HISTORY_TURNS = 10
+
 
 @dataclass
 class TurnOutcome:
@@ -66,10 +70,13 @@ async def run_turn(
 ) -> TurnOutcome:
     """Run one message through the graph, then record telemetry and learning.
 
+    An existing conversation_id pulls its stored turns back into the model's context,
+    so follow-ups (and conversations resumed in a later session) keep their history.
     If db is None (Postgres was down at boot) the turn still runs and only
     persistence is skipped.
     """
-    state = build_initial_state(message, conversation_id, owner_id)
+    history = await _load_history(db, conversation_id)
+    state = build_initial_state(message, conversation_id, owner_id, history=history)
 
     started = time.perf_counter()
     result = await graph.ainvoke(state)
@@ -97,6 +104,23 @@ async def run_turn(
         agent_runs=result.get("agent_runs") or [],
         retry_count=result.get("retry_count", 0) or 0,
     )
+
+
+async def _load_history(db: "Database | None", conversation_id: str | None) -> list[dict]:
+    """The conversation so far as user/assistant messages. Never raises — [] on any miss."""
+    if db is None or not conversation_id:
+        return []
+    try:
+        turns = await db.conversations.get_turns(uuid.UUID(conversation_id))
+    except Exception:  # noqa: BLE001 - malformed id / storage error -> just start fresh
+        logger.warning("could not load history for %s", conversation_id, exc_info=True)
+        return []
+    history: list[dict] = []
+    for turn in turns[-_MAX_HISTORY_TURNS:]:
+        history.append({"role": "user", "content": turn.user_message})
+        if turn.agent_response:
+            history.append({"role": "assistant", "content": turn.agent_response})
+    return history
 
 
 async def _persist_turn(

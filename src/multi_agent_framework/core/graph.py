@@ -70,6 +70,8 @@ def build_graph(
                 "Provide an improved answer to the original request."
             )
         hints = state.get("auto_memory_hints") or []
+        # Everything before the current user message — the loaded conversation so far.
+        history = list(state["messages"][:-1])
         runs = await asyncio.gather(
             *(
                 run_agent(
@@ -80,6 +82,7 @@ def build_graph(
                     tool_provider=tool_provider,
                     depth=0,
                     hints=hints,
+                    history=history,
                 )
                 for a in agents
             )
@@ -272,11 +275,18 @@ async def _synthesize(
 
 
 def build_initial_state(
-    message: str, conversation_id: str | None = None, owner_id: str | None = None
+    message: str,
+    conversation_id: str | None = None,
+    owner_id: str | None = None,
+    history: list[dict[str, Any]] | None = None,
 ) -> ConversationState:
-    """Build a fresh ConversationState for one user message."""
+    """Build a fresh ConversationState for one user message.
+
+    history is the conversation so far (alternating user/assistant messages, loaded
+    from storage), so the router and agents see prior turns; the new message goes last.
+    """
     return ConversationState(
-        messages=[{"role": "user", "content": message}],
+        messages=[*(history or []), {"role": "user", "content": message}],
         conversation_id=conversation_id or str(uuid.uuid4()),
         owner_id=owner_id,
         current_agents=[],
