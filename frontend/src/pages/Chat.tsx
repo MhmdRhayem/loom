@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
 import { api, fmtScore } from '../api'
+import { useAuth } from '../auth'
 import type { AgentInfo, ChatResponse } from '../types'
 
 interface Message {
@@ -15,7 +17,7 @@ interface Message {
 
 const SUGGESTIONS = [
   'Do you have any dresses under $60?',
-  'Where is my order? My email is john@example.com',
+  'Where is my order ORD-1005?',
   'What would go well with the Classic Trench Coat?',
   'I want to return my leather boots',
 ]
@@ -103,9 +105,10 @@ function Welcome({ agents, onPick }: { agents: AgentInfo[]; onPick: (s: string) 
 }
 
 export default function Chat() {
+  const { user } = useAuth()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
-  const [ownerId, setOwnerId] = useState('')
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
   const [agents, setAgents] = useState<AgentInfo[]>([])
@@ -120,6 +123,32 @@ export default function Chat() {
     inputRef.current?.focus()
   }, [])
 
+  // Arriving via /chat?c=<id> resumes a stored conversation: replay its turns into
+  // the log and keep chatting under the same id (the backend reloads the history too).
+  useEffect(() => {
+    const resumeId = searchParams.get('c')
+    if (!resumeId) return
+    api
+      .conversation(resumeId)
+      .then((detail) => {
+        const restored: Message[] = []
+        for (const t of detail.turns) {
+          restored.push({ role: 'user', text: t.user_message, at: new Date(t.created_at) })
+          if (t.agent_response) {
+            restored.push({ role: 'assistant', text: t.agent_response, at: new Date(t.created_at) })
+          }
+        }
+        setConversationId(resumeId)
+        setMessages(restored)
+      })
+      .catch(() => {
+        setMessages([
+          { role: 'error', text: 'Could not load that conversation.', at: new Date() },
+        ])
+      })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   useEffect(() => {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight, behavior: 'smooth' })
   }, [messages, sending])
@@ -131,11 +160,8 @@ export default function Chat() {
     setSending(true)
     setMessages((m) => [...m, { role: 'user', text: message, at: new Date() }])
     try {
-      const res = await api.chat({
-        message,
-        conversation_id: conversationId,
-        owner_id: ownerId.trim() || null,
-      })
+      // The backend takes the owner from the Bearer token, so no owner_id is sent.
+      const res = await api.chat({ message, conversation_id: conversationId })
       setConversationId(res.conversation_id)
       setMessages((m) => [
         ...m,
@@ -162,6 +188,7 @@ export default function Chat() {
   const reset = () => {
     setMessages([])
     setConversationId(null)
+    setSearchParams({}, { replace: true })
     inputRef.current?.focus()
   }
 
@@ -172,21 +199,9 @@ export default function Chat() {
       <div className="chat-header">
         <h1 className="page-title">Chat</h1>
         <div className="chat-controls">
-          <label className="muted" htmlFor="owner">
-            owner_id
-          </label>
-          <input
-            id="owner"
-            placeholder="e.g. shopper:42 — memory off when empty"
-            value={ownerId}
-            onChange={(e) => setOwnerId(e.target.value)}
-            disabled={conversationId != null}
-            title={
-              conversationId != null
-                ? 'Locked for this conversation — start a new one to change it'
-                : 'Cross-session memory scope'
-            }
-          />
+          <span className="muted" title={user?.email}>
+            shopping as <strong>{user?.name}</strong>
+          </span>
           {conversationId && <span className="badge">conversation {conversationId.slice(0, 8)}…</span>}
           <button className="ghost" onClick={reset}>
             New conversation

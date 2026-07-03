@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 
 import { api, fmtDate } from '../api'
+import { useAuth } from '../auth'
 import type { Coupon, Order, Product } from '../types'
 
 type Tab = 'products' | 'orders' | 'coupons'
 
 export default function Storefront() {
+  const { user } = useAuth()
   const [tab, setTab] = useState<Tab>('products')
   const [products, setProducts] = useState<Product[]>([])
   const [orders, setOrders] = useState<Order[]>([])
@@ -14,15 +17,16 @@ export default function Storefront() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    Promise.all([api.products(), api.orders(), api.coupons()])
-      .then(([p, o, c]) => {
+    // Orders are per-account, so they're only fetched (and only visible) signed in.
+    Promise.all([api.products(), api.coupons(), user ? api.orders() : Promise.resolve(null)])
+      .then(([p, c, o]) => {
         setProducts(p.products)
-        setOrders(o.orders)
         setCoupons(c.coupons)
+        setOrders(o?.orders ?? [])
         setLoaded(true)
       })
       .catch((err) => setError(String(err)))
-  }, [])
+  }, [user])
 
   return (
     <>
@@ -63,7 +67,15 @@ export default function Storefront() {
         </div>
       )}
 
-      {loaded && tab === 'orders' && (
+      {loaded && tab === 'orders' && !user && (
+        <div className="card">
+          <p className="muted" style={{ margin: 0 }}>
+            Orders are private to each account — <Link to="/login">sign in</Link> to see yours.
+          </p>
+        </div>
+      )}
+
+      {loaded && tab === 'orders' && user && (
         <div className="card">
           <table>
             <thead>
@@ -96,7 +108,7 @@ export default function Storefront() {
               {orders.length === 0 && (
                 <tr>
                   <td colSpan={8} className="muted">
-                    no orders
+                    no orders on your account
                   </td>
                 </tr>
               )}

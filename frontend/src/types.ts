@@ -2,6 +2,18 @@
 // (src/multi_agent_framework/api/models.py + analytics_models.py, demo shop_routes.py).
 // Datetimes arrive as ISO-8601 strings.
 
+// --- auth ---
+
+export interface User {
+  email: string
+  name: string
+}
+
+export interface LoginResponse {
+  token: string
+  user: User
+}
+
 // --- chat ---
 
 export interface ChatRequest {

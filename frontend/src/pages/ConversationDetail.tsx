@@ -34,6 +34,9 @@ export default function ConversationDetail() {
             <span className="badge">{detail.conversation.status}</span>
             <span className="badge">{detail.conversation.total_turns} turns</span>
             <span className="muted">{fmtDate(detail.conversation.created_at)}</span>
+            <Link className="row-link" to={`/chat?c=${id}`} style={{ marginLeft: 'auto' }}>
+              continue this conversation →
+            </Link>
           </div>
 
           {detail.turns.map((turn) => {

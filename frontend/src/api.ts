@@ -9,20 +9,46 @@ import type {
   FeedbackRequest,
   FeedbackResponse,
   HealthResponse,
+  LoginResponse,
   MemoryAnalyticsResponse,
   Order,
   OverviewResponse,
   Product,
   RoutingAnalyticsResponse,
   TimeseriesResponse,
+  User,
 } from './types'
 
 // The backend origin. CORS on the API side already allows the Vite dev server.
 const BASE = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:8000'
 
+export class ApiError extends Error {
+  status: number
+
+  constructor(message: string, status: number) {
+    super(message)
+    this.status = status
+  }
+}
+
+// The session token lives in localStorage so a refresh keeps you signed in;
+// auth.tsx owns writing it, every request below reads it.
+const TOKEN_KEY = 'loom.token'
+
+export const getToken = () => localStorage.getItem(TOKEN_KEY)
+
+export const setToken = (token: string | null) => {
+  if (token) localStorage.setItem(TOKEN_KEY, token)
+  else localStorage.removeItem(TOKEN_KEY)
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, init)
-  if (!res.ok) throw new Error(`${init?.method ?? 'GET'} ${path} failed (${res.status})`)
+  const headers = new Headers(init?.headers)
+  const token = getToken()
+  if (token) headers.set('Authorization', `Bearer ${token}`)
+  const res = await fetch(`${BASE}${path}`, { ...init, headers })
+  if (!res.ok)
+    throw new ApiError(`${init?.method ?? 'GET'} ${path} failed (${res.status})`, res.status)
   return (await res.json()) as T
 }
 
@@ -36,6 +62,10 @@ const post = <T,>(path: string, body: unknown) =>
   })
 
 export const api = {
+  login: (email: string, password: string) =>
+    post<LoginResponse>('/auth/login', { email, password }),
+  me: () => get<User>('/auth/me'),
+
   health: () => get<HealthResponse>('/health'),
   agents: () => get<AgentsResponse>('/agents'),
   chat: (req: ChatRequest) => post<ChatResponse>('/chat', req),

@@ -18,6 +18,9 @@ export default function Conversations() {
   return (
     <>
       <h1 className="page-title">Conversations</h1>
+      <p className="muted" style={{ marginTop: -10, marginBottom: 16 }}>
+        Your conversations with the assistant — other accounts can't see them.
+      </p>
       {error && <div className="error-banner">Could not load conversations. {error}</div>}
       {!error && conversations == null && <p className="muted">Loading…</p>}
       {conversations != null && (
@@ -30,6 +33,7 @@ export default function Conversations() {
                 <th>status</th>
                 <th>turns</th>
                 <th>started</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -46,11 +50,16 @@ export default function Conversations() {
                   </td>
                   <td>{c.total_turns}</td>
                   <td>{fmtDate(c.created_at)}</td>
+                  <td>
+                    <Link className="row-link" to={`/chat?c=${c.id}`}>
+                      continue →
+                    </Link>
+                  </td>
                 </tr>
               ))}
               {conversations.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="muted">
+                  <td colSpan={6} className="muted">
                     no conversations yet — try the Chat page
                   </td>
                 </tr>
