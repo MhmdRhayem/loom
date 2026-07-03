@@ -5,6 +5,7 @@ from pathlib import Path
 from multi_agent_framework.agents.registry import AgentRegistry
 from multi_agent_framework.api.main import create_app
 
+from .auth import auth_router, resolve_identity
 from .shop_routes import shop_router
 from .tools import get_tools
 
@@ -16,9 +17,14 @@ DEFINITIONS_DIR = Path(__file__).parent / "definitions"
 FALLBACK_AGENT = "support_concierge"
 
 registry = AgentRegistry.from_directory(DEFINITIONS_DIR)
-app = create_app(registry, get_tools, fallback_agent=FALLBACK_AGENT)
+# The identity resolver makes chat + conversation reads require a login and scopes
+# them (and the customer-record tools) to the signed-in account.
+app = create_app(
+    registry, get_tools, fallback_agent=FALLBACK_AGENT, identity_resolver=resolve_identity
+)
 
-# The storefront read endpoints (/shop/*) are demo-specific, so they're mounted here
-# rather than in the framework. CORS is applied inside create_app and wraps the whole
-# app, so routers added afterward are covered too.
+# The auth + storefront endpoints (/auth/*, /shop/*) are demo-specific, so they're
+# mounted here rather than in the framework. CORS is applied inside create_app and
+# wraps the whole app, so routers added afterward are covered too.
+app.include_router(auth_router)
 app.include_router(shop_router)

@@ -30,6 +30,10 @@ dev = [
     "httpx>=0.28",
     "ruff>=0.15.20",
 ]
+# Used by the shopping-assistant demo (its login layer), not the framework itself.
+demo = [
+    "pyjwt>=2.13",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

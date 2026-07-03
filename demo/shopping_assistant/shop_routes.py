@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from . import db
+from .auth import current_email
 
 shop_router = APIRouter(prefix="/shop", tags=["shop"])
 
@@ -14,9 +15,9 @@ def products(limit: int = 100) -> dict:
 
 
 @shop_router.get("/orders")
-def orders(limit: int = 100) -> dict:
-    """Placed orders with status + shipping details."""
-    return {"orders": db.list_orders(limit)}
+def orders(email: str = Depends(current_email), limit: int = 100) -> dict:
+    """The signed-in customer's orders with status + shipping details."""
+    return {"orders": db.list_orders(email, limit)}
 
 
 @shop_router.get("/coupons")

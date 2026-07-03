@@ -4,6 +4,7 @@ import argparse
 
 from sqlalchemy import func, select
 
+from .auth import hash_password
 from .db import (
     Account,
     CartItem,
@@ -170,6 +171,26 @@ def _rows() -> list:
             placed_on="2026-06-15",
             total=18.0,
         ),
+        Order(
+            order_id="ORD-1005",
+            email="mohammad@example.com",
+            status="shipped",
+            carrier="DHL",
+            tracking_number="JD014600003RS034",
+            estimated_delivery="2026-07-05",
+            placed_on="2026-06-28",
+            total=145.0,
+        ),
+        Order(
+            order_id="ORD-1006",
+            email="mohammad@example.com",
+            status="processing",
+            carrier=None,
+            tracking_number=None,
+            estimated_delivery="2026-07-08",
+            placed_on="2026-07-01",
+            total=62.0,
+        ),
     ]
     returns = [
         Return(
@@ -182,19 +203,32 @@ def _rows() -> list:
             next_step="Pack the item and drop it at any FedEx location using the emailed label.",
         ),
     ]
+    # Login credentials for the demo: mohammad@example.com / mohammad123 (the test user),
+    # everyone else password123 — handy for verifying cross-account isolation.
     accounts = [
         Account(
             email="alice@example.com",
             name="Alice Martin",
             address="12 Rue de Lyon, 75012 Paris, France",
+            password_hash=hash_password("password123"),
         ),
         Account(
             email="bob@example.com",
             name="Bob Chen",
             address="88 Market St, San Francisco, CA 94103, USA",
+            password_hash=hash_password("password123"),
         ),
         Account(
-            email="carol@example.com", name="Carol Diaz", address="5 King St, London EC2V 8EA, UK"
+            email="carol@example.com",
+            name="Carol Diaz",
+            address="5 King St, London EC2V 8EA, UK",
+            password_hash=hash_password("password123"),
+        ),
+        Account(
+            email="mohammad@example.com",
+            name="Mohammad Rhayem",
+            address="Hamra St, Beirut, Lebanon",
+            password_hash=hash_password("mohammad123"),
         ),
     ]
     # The in-flight cart the checkout agent inspects, plus a seeded checkout failure to diagnose.

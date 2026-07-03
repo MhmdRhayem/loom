@@ -95,6 +95,7 @@ class Account(Base):
     email: Mapped[str] = mapped_column(Text, primary_key=True)
     name: Mapped[str] = mapped_column(Text)
     address: Mapped[str] = mapped_column(Text)
+    password_hash: Mapped[str | None] = mapped_column(Text)  # pbkdf2 string from auth.py
 
 
 class CartItem(Base):
@@ -221,15 +222,28 @@ def get_price(product_id: str) -> dict[str, Any]:
     }
 
 
-def get_order(order_id: str) -> dict[str, Any]:
-    """Status, carrier, and delivery estimate for a placed order."""
+def get_account(email: str) -> Account | None:
+    """The account row for an email, or None (also None if the schema isn't seeded)."""
+    try:
+        with SessionLocal() as session:
+            return session.get(Account, email)
+    except Exception:  # noqa: BLE001 - unseeded schema / unreachable DB -> treat as no account
+        return None
+
+
+def get_order(order_id: str, email: str | None = None) -> dict[str, Any]:
+    """Status, carrier, and delivery estimate for a placed order.
+
+    With an email, only that customer's orders are visible — anyone else's order id
+    answers not_found, so an order's existence never leaks across accounts.
+    """
     with SessionLocal() as session:
         order = session.get(Order, order_id)
-        if order is None:
+        if order is None or (email is not None and order.email != email):
             return {
                 "order_id": order_id,
                 "status": "not_found",
-                "message": "No order with that id.",
+                "message": "No order with that id on this account.",
             }
         return {
             "order_id": order.order_id,
@@ -240,12 +254,19 @@ def get_order(order_id: str) -> dict[str, Any]:
         }
 
 
-def start_return(order_id: str) -> dict[str, Any]:
-    """Check return eligibility and start a return; persists an RMA and reuses an existing one."""
+def start_return(order_id: str, email: str | None = None) -> dict[str, Any]:
+    """Check return eligibility and start a return; persists an RMA and reuses an existing one.
+
+    Scoped like get_order: with an email, another customer's order id answers not_found.
+    """
     with SessionLocal.begin() as session:
         order = session.get(Order, order_id)
-        if order is None:
-            return {"order_id": order_id, "eligible": False, "message": "No order with that id."}
+        if order is None or (email is not None and order.email != email):
+            return {
+                "order_id": order_id,
+                "eligible": False,
+                "message": "No order with that id on this account.",
+            }
 
         existing = session.scalars(select(Return).where(Return.order_id == order_id)).first()
         if existing is not None:
@@ -454,11 +475,13 @@ def list_products(limit: int = 100) -> list[dict[str, Any]]:
     return _safe(q)
 
 
-def list_orders(limit: int = 100) -> list[dict[str, Any]]:
-    """Every order with its status and shipping details."""
+def list_orders(email: str, limit: int = 100) -> list[dict[str, Any]]:
+    """One customer's orders with status + shipping details (never anyone else's)."""
 
     def q(session: Session) -> list[dict[str, Any]]:
-        rows = session.scalars(select(Order).order_by(Order.order_id).limit(limit)).all()
+        rows = session.scalars(
+            select(Order).where(Order.email == email).order_by(Order.order_id).limit(limit)
+        ).all()
         return [
             {
                 "order_id": o.order_id,

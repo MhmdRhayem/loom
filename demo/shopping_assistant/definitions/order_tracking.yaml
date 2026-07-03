@@ -4,17 +4,19 @@
 
 name: order_tracking
 description: >-
-  Answers "where is my order" questions: order status, shipment tracking, and
-  delivery estimates for a customer's already-placed orders. Read-only — does not
-  modify orders, carts, returns, or payments.
+  Answers "where is my order" questions: lists the customer's orders and gives
+  order status, shipment tracking, and delivery estimates for already-placed
+  orders. Read-only — does not modify orders, carts, returns, or payments.
 
 capabilities:
   - order_status
+  - order_history
   - shipping_tracking
   - delivery_estimate
 
 tools:
   - order_api
+  - list_my_orders
 
 model: fast
 max_tokens: 1024
