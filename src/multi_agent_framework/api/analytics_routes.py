@@ -15,6 +15,7 @@ from multi_agent_framework.api.analytics_models import (
     TimeseriesResponse,
     TurnDetail,
 )
+from multi_agent_framework.api.routes import resolve_owner
 
 router = APIRouter(tags=["analytics"])
 
@@ -81,7 +82,9 @@ async def analytics_timeseries(
 
 
 @router.get("/analytics/memory", response_model=MemoryAnalyticsResponse)
-async def analytics_memory(request: Request, owner_id: str | None = None) -> MemoryAnalyticsResponse:
+async def analytics_memory(
+    request: Request, owner_id: str | None = None
+) -> MemoryAnalyticsResponse:
     db = _db(request)
     if db is None:
         return MemoryAnalyticsResponse()
@@ -109,6 +112,8 @@ async def list_conversations(
     db = _db(request)
     if db is None:
         return ConversationListResponse()
+    # With an identity resolver configured, you only ever see your own conversations.
+    owner_id = await resolve_owner(request, owner_id)
     limit = max(1, min(limit, 200))
     convs = await db.analytics.recent_conversations(limit=limit, owner_id=owner_id)
     return ConversationListResponse(conversations=[_summary(c) for c in convs])
@@ -125,6 +130,10 @@ async def conversation_detail(request: Request, conversation_id: str) -> Convers
         raise HTTPException(status_code=404, detail="conversation not found") from None
     conv = await db.conversations.get_conversation(cid)
     if conv is None:
+        raise HTTPException(status_code=404, detail="conversation not found")
+    owner = await resolve_owner(request)
+    if owner is not None and conv.owner_id != owner:
+        # 404, not 403: don't confirm that someone else's conversation exists.
         raise HTTPException(status_code=404, detail="conversation not found")
     turns = await db.conversations.get_turns(cid)
     turn_agents = await db.analytics.turn_agents_for_conversation(cid)

@@ -22,7 +22,9 @@ from multi_agent_framework.memory.auto_memory import extract_and_upsert, load_hi
 if TYPE_CHECKING:
     from multi_agent_framework.storage.repositories.memory import MemoryRepository
 
-ToolProvider = Callable[[Sequence[str]], Sequence[Any]]
+# Maps an agent's declared tool names (+ the turn's owner, when known) to callables,
+# so a consumer can hand out user-scoped tools.
+ToolProvider = Callable[[Sequence[str], str | None], Sequence[Any]]
 
 
 def build_graph(
@@ -70,8 +72,14 @@ def build_graph(
                 "Provide an improved answer to the original request."
             )
         hints = state.get("auto_memory_hints") or []
+        owner_id = state.get("owner_id")
         # Everything before the current user message — the loaded conversation so far.
         history = list(state["messages"][:-1])
+
+        def scoped_tools(names: Sequence[str]) -> Sequence[Any]:
+            """Bind this turn's owner into the tool provider (peer calls included)."""
+            return tool_provider(names, owner_id)
+
         runs = await asyncio.gather(
             *(
                 run_agent(
@@ -79,7 +87,7 @@ def build_graph(
                     query,
                     registry=registry,
                     settings=settings,
-                    tool_provider=tool_provider,
+                    tool_provider=scoped_tools,
                     depth=0,
                     hints=hints,
                     history=history,

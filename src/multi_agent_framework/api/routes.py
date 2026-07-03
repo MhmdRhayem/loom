@@ -18,6 +18,18 @@ from multi_agent_framework.api.models import (
 router = APIRouter()
 
 
+async def resolve_owner(request: Request, fallback: str | None = None) -> str | None:
+    """The verified owner id when an identity resolver is configured, else the fallback.
+
+    With a resolver set (see create_app), the client-supplied owner id is never
+    trusted; the resolver may raise HTTPException(401) to reject the request.
+    """
+    resolver = getattr(request.app.state, "identity_resolver", None)
+    if resolver is None:
+        return fallback
+    return await resolver(request)
+
+
 @router.get("/health", response_model=HealthResponse)
 async def health(request: Request) -> HealthResponse:
     """Liveness and dependency check. Reports component status, never raises."""
@@ -84,7 +96,7 @@ async def chat(request: Request, payload: ChatRequest) -> ChatResponse:
         registry=getattr(state, "registry", None),
         message=payload.message,
         conversation_id=payload.conversation_id,
-        owner_id=payload.owner_id,
+        owner_id=await resolve_owner(request, payload.owner_id),
     )
     return ChatResponse(
         conversation_id=outcome.conversation_id,

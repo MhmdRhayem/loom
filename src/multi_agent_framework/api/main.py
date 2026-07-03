@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from multi_agent_framework._platform import configure_async_runtime
@@ -23,7 +23,12 @@ configure_async_runtime()
 
 logger = logging.getLogger(__name__)
 
-ToolProvider = Callable[[Sequence[str]], Sequence[Any]]
+ToolProvider = Callable[[Sequence[str], str | None], Sequence[Any]]
+
+# Turns an incoming request into an owner id (e.g. by validating a Bearer token).
+# Raise fastapi.HTTPException(401) to reject the request. The framework never sees
+# the auth mechanism itself — the composition root owns it.
+IdentityResolver = Callable[[Request], Awaitable[str]]
 
 
 def create_app(
@@ -31,8 +36,13 @@ def create_app(
     tool_provider: ToolProvider,
     *,
     fallback_agent: str | None = None,
+    identity_resolver: IdentityResolver | None = None,
 ) -> FastAPI:
-    """Build the FastAPI app for a given agent registry and tool_provider."""
+    """Build the FastAPI app for a given agent registry and tool_provider.
+
+    With an identity_resolver, chat and conversation reads are scoped to the
+    resolved owner instead of trusting client-supplied owner ids.
+    """
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -40,6 +50,7 @@ def create_app(
         app.state.settings = settings
         app.state.registry = registry
         app.state.fallback_agent = fallback_agent
+        app.state.identity_resolver = identity_resolver
 
         db: Database | None = Database(settings.database_url)
         try:
