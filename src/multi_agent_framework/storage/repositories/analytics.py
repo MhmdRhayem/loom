@@ -24,6 +24,14 @@ def _f(value: Any) -> float | None:
     return float(value) if value is not None else None
 
 
+def _truncate(message: str | None, limit: int = 60) -> str | None:
+    """Collapse a message to one display line of at most `limit` characters."""
+    if not message:
+        return None
+    line = " ".join(message.split())
+    return line if len(line) <= limit else line[: limit - 1].rstrip() + "…"
+
+
 class AnalyticsRepository(Repository):
     """Read-only aggregate queries for the dashboard. Never writes."""
 
@@ -184,13 +192,39 @@ class AnalyticsRepository(Repository):
 
     async def recent_conversations(
         self, limit: int = 50, owner_id: str | None = None
-    ) -> list[Conversation]:
-        """Recent conversations, newest first (all owners unless one is given)."""
+    ) -> list[dict[str, Any]]:
+        """Recent conversations, newest first (all owners unless one is given).
+
+        Each dict carries a display title: the AI-generated one when set, else the
+        first user message truncated — so lists never show a bare UUID.
+        """
         stmt = select(Conversation).order_by(Conversation.created_at.desc()).limit(limit)
         if owner_id:
             stmt = stmt.where(Conversation.owner_id == owner_id)
         async with self._session() as s:
-            return list((await s.execute(stmt)).scalars().all())
+            convs = list((await s.execute(stmt)).scalars().all())
+            titles: dict[UUID, str] = {}
+            if convs:
+                first_turns = select(
+                    ConversationTurn.conversation_id, ConversationTurn.user_message
+                ).where(
+                    ConversationTurn.conversation_id.in_([c.id for c in convs]),
+                    ConversationTurn.turn_number == 1,
+                )
+                titles = {
+                    r.conversation_id: r.user_message for r in (await s.execute(first_turns)).all()
+                }
+        return [
+            {
+                "id": str(c.id),
+                "owner_id": c.owner_id,
+                "created_at": c.created_at,
+                "status": c.status,
+                "total_turns": c.total_turns,
+                "title": c.title or _truncate(titles.get(c.id)),
+            }
+            for c in convs
+        ]
 
     async def turn_agents_for_conversation(self, conversation_id: UUID) -> list[dict[str, Any]]:
         """Per-agent verdict rows for a whole conversation, tagged with their turn number.

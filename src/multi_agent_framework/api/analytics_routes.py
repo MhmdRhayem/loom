@@ -9,6 +9,7 @@ from multi_agent_framework.api.analytics_models import (
     ConversationDetailResponse,
     ConversationListResponse,
     ConversationSummary,
+    DeleteConversationResponse,
     MemoryAnalyticsResponse,
     OverviewResponse,
     RoutingAnalyticsResponse,
@@ -116,7 +117,28 @@ async def list_conversations(
     owner_id = await resolve_owner(request, owner_id)
     limit = max(1, min(limit, 200))
     convs = await db.analytics.recent_conversations(limit=limit, owner_id=owner_id)
-    return ConversationListResponse(conversations=[_summary(c) for c in convs])
+    return ConversationListResponse(conversations=[ConversationSummary(**c) for c in convs])
+
+
+@router.delete("/conversations/{conversation_id}", response_model=DeleteConversationResponse)
+async def delete_conversation(request: Request, conversation_id: str) -> DeleteConversationResponse:
+    """Delete one of your own conversations (turns cascade). 404 for anyone else's."""
+    db = _db(request)
+    if db is None:
+        raise HTTPException(status_code=404, detail="conversation not found")
+    try:
+        cid = uuid.UUID(conversation_id)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=404, detail="conversation not found") from None
+    conv = await db.conversations.get_conversation(cid)
+    if conv is None:
+        raise HTTPException(status_code=404, detail="conversation not found")
+    owner = await resolve_owner(request)
+    if owner is not None and conv.owner_id != owner:
+        # 404, not 403: don't confirm that someone else's conversation exists.
+        raise HTTPException(status_code=404, detail="conversation not found")
+    await db.conversations.delete_conversation(cid)
+    return DeleteConversationResponse(deleted=True)
 
 
 @router.get("/conversations/{conversation_id}", response_model=ConversationDetailResponse)

@@ -6,7 +6,10 @@ import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from langchain.chat_models import init_chat_model
+
 from multi_agent_framework.core.graph import build_initial_state
+from multi_agent_framework.core.prompt_builder import message_text
 from multi_agent_framework.learning.scoring import record_score
 from multi_agent_framework.learning.signals import (
     reward_from_agent_eval,
@@ -92,6 +95,16 @@ async def run_turn(
         latency_ms=latency_ms,
     )
 
+    # A first turn (no stored history) names the conversation, like ChatGPT/Claude do.
+    if not history:
+        await _title_conversation(
+            db=db,
+            settings=settings,
+            conversation_id=result["conversation_id"],
+            user_message=message,
+            agent_response=result.get("agent_response"),
+        )
+
     return TurnOutcome(
         conversation_id=result["conversation_id"],
         agents=result.get("current_agents") or [],
@@ -104,6 +117,44 @@ async def run_turn(
         agent_runs=result.get("agent_runs") or [],
         retry_count=result.get("retry_count", 0) or 0,
     )
+
+
+async def _title_conversation(
+    *,
+    db: "Database | None",
+    settings: "Settings | None",
+    conversation_id: str,
+    user_message: str,
+    agent_response: str | None,
+) -> None:
+    """Name a new conversation with a short fast-tier-generated title. Never raises."""
+    if db is None or settings is None:
+        return
+    try:
+        model = init_chat_model(
+            settings.model_id_for_tier("fast"), model_provider=settings.default_provider
+        )
+        out = await model.ainvoke(
+            [
+                {
+                    "role": "system",
+                    "content": (
+                        "Write a title for this conversation: 3-6 words, plain text, no quotes "
+                        "or trailing punctuation, same language as the user. Reply with the "
+                        "title only."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": f"User: {user_message}\n\nAssistant: {agent_response or ''}",
+                },
+            ]
+        )
+        title = " ".join(message_text(out).split()).strip("\"' ")[:80]
+        if title:
+            await db.conversations.set_title(uuid.UUID(conversation_id), title)
+    except Exception:  # noqa: BLE001 - a missing title must never break the turn
+        logger.warning("could not title conversation %s", conversation_id, exc_info=True)
 
 
 async def _load_history(db: "Database | None", conversation_id: str | None) -> list[dict]:

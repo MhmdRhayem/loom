@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from multi_agent_framework.storage.base import Repository
@@ -182,6 +182,18 @@ class ConversationRepository(Repository):
         async with self._session() as session:
             result = await session.execute(stmt)
             return list(result.scalars().all())
+
+    async def delete_conversation(self, conversation_id: UUID) -> None:
+        """Delete a conversation; its turns and per-agent rows cascade at the DB level."""
+        async with self._session() as session, session.begin():
+            await session.execute(delete(Conversation).where(Conversation.id == conversation_id))
+
+    async def set_title(self, conversation_id: UUID, title: str) -> None:
+        """Store the conversation's display title (generated after the first turn)."""
+        async with self._session() as session, session.begin():
+            await session.execute(
+                update(Conversation).where(Conversation.id == conversation_id).values(title=title)
+            )
 
     async def set_conversation_status(self, conversation_id: UUID, status: str) -> None:
         """Change a conversation's status (e.g. 'active' -> 'completed')."""

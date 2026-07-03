@@ -85,10 +85,15 @@ class ConversationSummary(BaseModel):
     created_at: datetime
     status: str
     total_turns: int
+    title: str | None = None  # first user message, truncated — the list's display name
 
 
 class ConversationListResponse(BaseModel):
     conversations: list[ConversationSummary] = Field(default_factory=list)
+
+
+class DeleteConversationResponse(BaseModel):
+    deleted: bool
 
 
 class TurnDetail(BaseModel):
