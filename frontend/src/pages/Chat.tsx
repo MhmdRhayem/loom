@@ -123,11 +123,25 @@ export default function Chat() {
     inputRef.current?.focus()
   }, [])
 
-  // Arriving via /chat?c=<id> resumes a stored conversation: replay its turns into
-  // the log and keep chatting under the same id (the backend reloads the history too).
+  // Arriving at (or switching to) /chat?c=<id> resumes a stored conversation: replay
+  // its turns into the log and keep chatting under the same id (the backend reloads
+  // the history too). loadedRef stops the effect from refetching the conversation we
+  // are already in — e.g. right after send() stamps a new id into the URL.
+  const resumeId = searchParams.get('c')
+  const loadedRef = useRef<string | null>(null)
   useEffect(() => {
-    const resumeId = searchParams.get('c')
-    if (!resumeId) return
+    // The ?c param went away while a conversation was open (deleted from the
+    // sidebar, or the Chat nav link was clicked) — start a fresh chat.
+    if (!resumeId) {
+      if (loadedRef.current) {
+        loadedRef.current = null
+        setMessages([])
+        setConversationId(null)
+      }
+      return
+    }
+    if (resumeId === loadedRef.current) return
+    loadedRef.current = resumeId
     api
       .conversation(resumeId)
       .then((detail) => {
@@ -146,8 +160,7 @@ export default function Chat() {
           { role: 'error', text: 'Could not load that conversation.', at: new Date() },
         ])
       })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [resumeId])
 
   useEffect(() => {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight, behavior: 'smooth' })
@@ -163,6 +176,11 @@ export default function Chat() {
       // The backend takes the owner from the Bearer token, so no owner_id is sent.
       const res = await api.chat({ message, conversation_id: conversationId })
       setConversationId(res.conversation_id)
+      // Stamp the conversation into the URL so a refresh resumes it and the
+      // sidebar's recent list picks it up. loadedRef stops the resume effect
+      // from reloading what's already on screen.
+      loadedRef.current = res.conversation_id
+      setSearchParams({ c: res.conversation_id }, { replace: true })
       setMessages((m) => [
         ...m,
         { role: 'assistant', text: res.response ?? '(no response)', at: new Date(), meta: res },
@@ -188,6 +206,7 @@ export default function Chat() {
   const reset = () => {
     setMessages([])
     setConversationId(null)
+    loadedRef.current = null
     setSearchParams({}, { replace: true })
     inputRef.current?.focus()
   }

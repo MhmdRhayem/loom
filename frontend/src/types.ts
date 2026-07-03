@@ -185,6 +185,7 @@ export interface ConversationSummary {
   created_at: string
   status: string
   total_turns: number
+  title: string | null // first user message, truncated — the list's display name
 }
 
 export interface ConversationListResponse {

@@ -84,6 +84,10 @@ export const api = {
   conversations: (limit = 50) => get<ConversationListResponse>(`/conversations?limit=${limit}`),
   conversation: (id: string) =>
     get<ConversationDetailResponse>(`/conversations/${encodeURIComponent(id)}`),
+  deleteConversation: (id: string) =>
+    request<{ deleted: boolean }>(`/conversations/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }),
 
   products: () => get<{ products: Product[] }>('/shop/products'),
   orders: () => get<{ orders: Order[] }>('/shop/orders'),

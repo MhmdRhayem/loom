@@ -142,8 +142,85 @@ body {
   font-weight: 600;
 }
 
+/* recent chats — a ChatGPT-style history list under the nav */
+
+.recent {
+  margin-top: 22px;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.recent-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  color: var(--text-dim);
+  margin: 0 12px 6px;
+}
+
+.recent-list {
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.recent-row {
+  display: flex;
+  align-items: center;
+  border-radius: 8px;
+  flex-shrink: 0;
+  transition: background 0.15s ease;
+}
+
+.recent-row:hover {
+  background: var(--bg-raised);
+}
+
+.recent-row.active {
+  background: rgba(139, 124, 246, 0.14);
+}
+
+.recent-item {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 4px 6px 12px;
+  color: var(--text-dim);
+  text-decoration: none;
+  font-size: 12.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: color 0.15s ease;
+}
+
+.recent-row:hover .recent-item,
+.recent-row.active .recent-item {
+  color: var(--text);
+}
+
+.recent-row.active .recent-item {
+  color: #c7bfff;
+}
+
+/* the trash icon only shows while hovering its row */
+.recent-del {
+  opacity: 0;
+  flex-shrink: 0;
+  margin-right: 4px;
+}
+
+.recent-row:hover .recent-del,
+.recent-del:focus-visible {
+  opacity: 1;
+}
+
 .sidebar-foot {
   margin-top: auto;
+  padding-top: 14px;
   font-size: 11px;
   color: var(--text-dim);
 }
@@ -321,6 +398,37 @@ a.row-link {
 
 a.row-link:hover {
   text-decoration: underline;
+}
+
+.row-actions {
+  white-space: nowrap;
+}
+
+.row-actions .row-link {
+  margin-right: 10px;
+}
+
+/* small icon-only action button (delete, etc.) — quiet until hovered */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: middle;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  padding: 6px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    background 0.15s ease,
+    opacity 0.15s ease;
+}
+
+.icon-btn:hover {
+  color: #fca5a5;
+  background: rgba(248, 113, 113, 0.12);
 }
 
 /* --- badges --- */

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { api, fmtDate } from '../api'
+import { TrashIcon } from '../App'
 import type { ConversationSummary } from '../types'
 
 export default function Conversations() {
@@ -14,6 +15,16 @@ export default function Conversations() {
       .then((res) => setConversations(res.conversations))
       .catch((err) => setError(String(err)))
   }, [])
+
+  const remove = async (id: string) => {
+    if (!window.confirm('Delete this conversation? This cannot be undone.')) return
+    try {
+      await api.deleteConversation(id)
+      setConversations((list) => (list ?? []).filter((c) => c.id !== id))
+    } catch (err) {
+      setError(String(err))
+    }
+  }
 
   return (
     <>
@@ -28,7 +39,7 @@ export default function Conversations() {
           <table>
             <thead>
               <tr>
-                <th>id</th>
+                <th>conversation</th>
                 <th>owner</th>
                 <th>status</th>
                 <th>turns</th>
@@ -41,7 +52,7 @@ export default function Conversations() {
                 <tr key={c.id}>
                   <td>
                     <Link className="row-link" to={`/conversations/${c.id}`}>
-                      {c.id.slice(0, 8)}…
+                      {c.title || `${c.id.slice(0, 8)}…`}
                     </Link>
                   </td>
                   <td>{c.owner_id}</td>
@@ -50,10 +61,17 @@ export default function Conversations() {
                   </td>
                   <td>{c.total_turns}</td>
                   <td>{fmtDate(c.created_at)}</td>
-                  <td>
+                  <td className="row-actions">
                     <Link className="row-link" to={`/chat?c=${c.id}`}>
                       continue →
                     </Link>
+                    <button
+                      className="icon-btn"
+                      title="Delete conversation"
+                      onClick={() => remove(c.id)}
+                    >
+                      <TrashIcon />
+                    </button>
                   </td>
                 </tr>
               ))}
