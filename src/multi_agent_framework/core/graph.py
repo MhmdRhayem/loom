@@ -49,7 +49,11 @@ def build_graph(
     async def route(state: ConversationState) -> dict[str, Any]:
         """Pick one or more agents via the LLM router; set the query category."""
         decision = await route_turn(
-            state["messages"], registry, settings, fallback_agent=fallback_agent
+            state["messages"],
+            registry,
+            settings,
+            fallback_agent=fallback_agent,
+            allowed_agents=state.get("allowed_agents"),
         )
         agents = decision["agents"]
         return {
@@ -62,6 +66,21 @@ def build_graph(
     async def execute_agents(state: ConversationState) -> dict[str, Any]:
         """Run all selected agents in parallel. Synthesize if more than one."""
         agents = state.get("current_agents") or []
+        # The fallback agent is exempt from visibility everywhere (same contract as
+        # the router), so the exempted set is what run_agent must enforce too.
+        allowed = state.get("allowed_agents")
+        if allowed is not None:
+            allowed = set(allowed) | ({fallback_agent} if fallback_agent else set())
+            # Defense in depth: the router already filters, but never run a hidden agent.
+            agents = [a for a in agents if a in allowed]
+        if not agents:
+            # No valid agent (router struck out and no fallback is configured): answer
+            # honestly instead of synthesizing a reply out of zero specialist answers.
+            return {
+                "agent_response": "No agent is available to handle this request.",
+                "tool_calls": [],
+                "agent_runs": [],
+            }
         query = _last_user_message(state["messages"])
         feedback = state.get("eval_feedback")
         if feedback:
@@ -91,12 +110,14 @@ def build_graph(
                     depth=0,
                     hints=hints,
                     history=history,
+                    allowed_agents=allowed,
                 )
                 for a in agents
             )
         )
         agent_runs = [
-            {"agent": a, "text": r.text, "tool_calls": r.tool_calls} for a, r in zip(agents, runs)
+            {"agent": a, "text": r.text, "tool_calls": r.tool_calls, "tokens": r.tokens}
+            for a, r in zip(agents, runs)
         ]
         tool_calls = [call for r in runs for call in r.tool_calls]
         if len(runs) == 1:
@@ -260,9 +281,7 @@ async def _synthesize(
     messages: list[dict[str, Any]], agent_answers: list[tuple[str, str]], settings: Settings
 ) -> str:
     """Combine multiple agents' answers into one coherent reply."""
-    user_question = next(
-        (m.get("content", "") for m in reversed(messages) if m.get("role") == "user"), ""
-    )
+    user_question = _last_user_message(messages)
     parts = "\n\n".join(f"[{agent}] {text}" for agent, text in agent_answers)
     model = init_chat_model(
         settings.model_id_for_tier("standard"), model_provider=settings.default_provider
@@ -287,16 +306,20 @@ def build_initial_state(
     conversation_id: str | None = None,
     owner_id: str | None = None,
     history: list[dict[str, Any]] | None = None,
+    allowed_agents: list[str] | None = None,
 ) -> ConversationState:
     """Build a fresh ConversationState for one user message.
 
     history is the conversation so far (alternating user/assistant messages, loaded
     from storage), so the router and agents see prior turns; the new message goes last.
+    allowed_agents restricts which agents the turn may route to or delegate to
+    (None = no restriction).
     """
     return ConversationState(
         messages=[*(history or []), {"role": "user", "content": message}],
         conversation_id=conversation_id or str(uuid.uuid4()),
         owner_id=owner_id,
+        allowed_agents=allowed_agents,
         current_agents=[],
         routing_confidence=None,
         routing_reason=None,
@@ -308,10 +331,8 @@ def build_initial_state(
         eval_feedback=None,
         retry_count=0,
         max_retries=2,
-        session_summary=None,
         auto_memory_hints=[],
         memory_writes=[],
-        metadata={},
     )
 
 

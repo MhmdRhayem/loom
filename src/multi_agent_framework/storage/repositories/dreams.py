@@ -15,7 +15,6 @@ class DreamRepository(Repository):
     async def log_dream_run(
         self,
         owner_id: str,
-        sessions_consolidated: int,
         memories_merged: int,
         memories_pruned: int,
         duration_ms: int,
@@ -28,7 +27,6 @@ class DreamRepository(Repository):
         """
         values: dict = {
             "owner_id": owner_id,
-            "sessions_consolidated": sessions_consolidated,
             "memories_merged": memories_merged,
             "memories_pruned": memories_pruned,
             "duration_ms": duration_ms,
@@ -55,15 +53,3 @@ class DreamRepository(Repository):
         async with self._session() as session:
             result = await session.execute(stmt)
             return result.scalars().first()
-
-    async def list_dream_runs(self, owner_id: str, limit: int = 50) -> list[DreamRun]:
-        """Recent dream runs for an owner, newest first (for history/dashboard)."""
-        stmt = (
-            select(DreamRun)
-            .where(DreamRun.owner_id == owner_id)
-            .order_by(DreamRun.started_at.desc())
-            .limit(limit)
-        )
-        async with self._session() as session:
-            result = await session.execute(stmt)
-            return list(result.scalars().all())

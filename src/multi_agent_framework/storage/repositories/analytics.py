@@ -15,7 +15,7 @@ from multi_agent_framework.storage.models import (
     TurnAgent,
 )
 
-# Turns whose memory is still live (never expires, or not yet expired).
+# Memory rows that are still live (never expire, or not yet expired).
 _LIVE_MEMORY = (AutoMemory.expires_at.is_(None)) | (AutoMemory.expires_at > func.now())
 
 
@@ -36,39 +36,55 @@ class AnalyticsRepository(Repository):
     """Read-only aggregate queries for the dashboard. Never writes."""
 
     async def overview(self) -> dict[str, Any]:
-        """Headline KPIs across all conversations/turns."""
+        """Headline KPIs across all conversations/turns — one aggregate query per table."""
         async with self._session() as s:
-            conversations = await s.scalar(select(func.count()).select_from(Conversation))
-            turns = await s.scalar(select(func.count()).select_from(ConversationTurn))
-            avg_eval = await s.scalar(select(func.avg(ConversationTurn.eval_score)))
-            avg_latency = await s.scalar(select(func.avg(ConversationTurn.latency_ms)))
-            retries = await s.scalar(
-                select(func.count())
-                .select_from(ConversationTurn)
-                .where(ConversationTurn.retry_count > 0)
-            )
-            passes = await s.scalar(
-                select(func.count()).select_from(TurnAgent).where(TurnAgent.eval_pass.is_(True))
-            )
-            judged = await s.scalar(
-                select(func.count()).select_from(TurnAgent).where(TurnAgent.eval_pass.isnot(None))
-            )
+            conv = (
+                await s.execute(
+                    select(
+                        func.count().label("conversations"),
+                        func.sum(Conversation.total_tokens).label("tokens"),
+                    )
+                )
+            ).one()
+            turn = (
+                await s.execute(
+                    select(
+                        func.count().label("turns"),
+                        func.avg(ConversationTurn.eval_score).label("avg_eval"),
+                        func.avg(ConversationTurn.latency_ms).label("avg_latency"),
+                        func.sum(case((ConversationTurn.retry_count > 0, 1), else_=0)).label(
+                            "retries"
+                        ),
+                    )
+                )
+            ).one()
+            agent = (
+                await s.execute(
+                    select(
+                        func.sum(case((TurnAgent.eval_pass.is_(True), 1), else_=0)).label("passes"),
+                        func.sum(case((TurnAgent.eval_pass.isnot(None), 1), else_=0)).label(
+                            "judged"
+                        ),
+                    )
+                )
+            ).one()
             memories = await s.scalar(
                 select(func.count()).select_from(AutoMemory).where(_LIVE_MEMORY)
             )
             dreams = await s.scalar(select(func.count()).select_from(DreamRun))
 
-        turns = int(turns or 0)
-        judged = int(judged or 0)
+        turns = int(turn.turns or 0)
+        judged = int(agent.judged or 0)
         return {
-            "conversations": int(conversations or 0),
+            "conversations": int(conv.conversations or 0),
             "turns": turns,
-            "avg_eval_score": _f(avg_eval),
-            "avg_latency_ms": _f(avg_latency),
-            "eval_pass_rate": (int(passes or 0) / judged) if judged else None,
-            "retry_rate": (int(retries or 0) / turns) if turns else None,
+            "avg_eval_score": _f(turn.avg_eval),
+            "avg_latency_ms": _f(turn.avg_latency),
+            "eval_pass_rate": (int(agent.passes or 0) / judged) if judged else None,
+            "retry_rate": (int(turn.retries or 0) / turns) if turns else None,
             "total_memories": int(memories or 0),
             "dream_runs": int(dreams or 0),
+            "total_tokens": int(conv.tokens or 0),
         }
 
     async def agent_turn_stats(self) -> list[dict[str, Any]]:

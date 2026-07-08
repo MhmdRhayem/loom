@@ -8,17 +8,12 @@ import redis.asyncio as redis
 
 class KeyPattern:
     CONV_STATE = "conv:{conversation_id}:state"
-    AGENT_MEM = "agent:{agent_name}:mem:{key}"
     ROUTING_CACHE = "route:{fingerprint}"
     FEATURE_FLAG = "flag:{name}"
 
     @staticmethod
     def conv_state(conversation_id: str) -> str:
         return KeyPattern.CONV_STATE.format(conversation_id=conversation_id)
-
-    @staticmethod
-    def agent_mem(agent_name: str, key: str) -> str:
-        return KeyPattern.AGENT_MEM.format(agent_name=agent_name, key=key)
 
     @staticmethod
     def routing_cache(fingerprint: str) -> str:

@@ -28,6 +28,17 @@ def _db(request: Request):
     return getattr(request.app.state, "db", None)
 
 
+async def _check_guard(request: Request) -> None:
+    """Run the app's analytics_guard hook (see create_app); it raises 401/403 to deny.
+
+    Applied per-endpoint to the aggregate /analytics handlers only — the
+    /conversations routes share this router but stay owner-scoped instead.
+    """
+    guard = getattr(request.app.state, "analytics_guard", None)
+    if guard is not None:
+        await guard(request)
+
+
 def _f(value) -> float | None:
     return float(value) if value is not None else None
 
@@ -39,11 +50,13 @@ def _summary(conv) -> ConversationSummary:
         created_at=conv.created_at,
         status=conv.status,
         total_turns=conv.total_turns,
+        title=conv.title,
     )
 
 
 @router.get("/analytics/overview", response_model=OverviewResponse)
 async def analytics_overview(request: Request) -> OverviewResponse:
+    await _check_guard(request)
     db = _db(request)
     if db is None:
         return OverviewResponse()
@@ -52,6 +65,7 @@ async def analytics_overview(request: Request) -> OverviewResponse:
 
 @router.get("/analytics/agents", response_model=AgentAnalyticsResponse)
 async def analytics_agents(request: Request) -> AgentAnalyticsResponse:
+    await _check_guard(request)
     db = _db(request)
     if db is None:
         return AgentAnalyticsResponse()
@@ -63,6 +77,7 @@ async def analytics_agents(request: Request) -> AgentAnalyticsResponse:
 
 @router.get("/analytics/routing", response_model=RoutingAnalyticsResponse)
 async def analytics_routing(request: Request) -> RoutingAnalyticsResponse:
+    await _check_guard(request)
     db = _db(request)
     if db is None:
         return RoutingAnalyticsResponse()
@@ -73,6 +88,7 @@ async def analytics_routing(request: Request) -> RoutingAnalyticsResponse:
 async def analytics_timeseries(
     request: Request, bucket: str = "day", limit: int = 30
 ) -> TimeseriesResponse:
+    await _check_guard(request)
     db = _db(request)
     if db is None:
         return TimeseriesResponse()
@@ -86,6 +102,7 @@ async def analytics_timeseries(
 async def analytics_memory(
     request: Request, owner_id: str | None = None
 ) -> MemoryAnalyticsResponse:
+    await _check_guard(request)
     db = _db(request)
     if db is None:
         return MemoryAnalyticsResponse()
@@ -95,7 +112,6 @@ async def analytics_memory(
         dream_runs=[
             {
                 "owner_id": r.owner_id,
-                "sessions_consolidated": r.sessions_consolidated,
                 "memories_merged": r.memories_merged,
                 "memories_pruned": r.memories_pruned,
                 "duration_ms": r.duration_ms,

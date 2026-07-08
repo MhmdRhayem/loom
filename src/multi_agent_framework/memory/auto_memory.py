@@ -15,13 +15,13 @@ _MAX_HINTS = 20
 
 _EXTRACT_INSTRUCTIONS = (
     "You extract DURABLE facts about the user that are worth remembering in future "
-    "conversations. Record only stable, reusable facts: preferences (e.g. size, style, "
-    "brands, shipping or payment preferences), stable identity details the user states "
-    "(name, email, shipping address), and explicit corrections the user makes.\n"
-    "Do NOT record transient or one-off details: the current question, an order's current "
-    "status, a tracking number, or anything that will be stale next session.\n"
-    "For each fact give: a short stable topic key in snake_case (e.g. 'preferred_size', "
-    "'shipping_pref', 'name'), the fact in one short sentence, and a confidence in [0, 1].\n"
+    "conversations. Record only stable, reusable facts: preferences, stable identity "
+    "details the user states (e.g. name, contact details), and explicit corrections "
+    "the user makes.\n"
+    "Do NOT record transient or one-off details: the current question, the current "
+    "status of some process, or anything that will be stale next session.\n"
+    "For each fact give: a short stable topic key in snake_case (e.g. 'name', "
+    "'preferred_language'), the fact in one short sentence, and a confidence in [0, 1].\n"
     "If there is nothing durable worth keeping, return an empty list."
 )
 
@@ -78,21 +78,10 @@ async def extract_and_upsert(
         if not topic or not content:
             continue
         try:
-            await _upsert(memory, owner_id, topic, content, mem.confidence)
+            await memory.upsert_auto_memory(owner_id, topic, content, confidence=mem.confidence)
             written += 1
         except Exception:  # noqa: BLE001 - one bad write must not lose the others
             logger.warning(
                 "auto-memory upsert failed (owner=%s topic=%s)", owner_id, topic, exc_info=True
             )
     return written
-
-
-async def _upsert(
-    memory: MemoryRepository, owner_id: str, topic: str, content: str, confidence: float
-) -> None:
-    """Update the existing memory for this (owner, topic) if present, else insert a new one."""
-    existing = await memory.load_auto_memory(owner_id, topic=topic, limit=1)
-    if existing:
-        await memory.update_auto_memory(existing[0].id, content=content, confidence=confidence)
-    else:
-        await memory.save_auto_memory(owner_id, topic, content, confidence=confidence)

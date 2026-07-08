@@ -16,11 +16,12 @@ class ChatRequest(BaseModel):
 
 
 class AgentRun(BaseModel):
-    """One agent's contribution to a turn: its raw answer and the tools it called."""
+    """One agent's contribution to a turn: its raw answer, tools called, tokens spent."""
 
     agent: str
     text: str | None = None
     tool_calls: list[dict] = Field(default_factory=list)
+    tokens: int = 0
 
 
 class ChatResponse(BaseModel):

@@ -73,20 +73,26 @@ async def consolidate(
             plan: DreamPlan = await model.with_structured_output(DreamPlan).ainvoke(
                 [{"role": "system", "content": system}, {"role": "user", "content": catalogue}]
             )
+            # The plan is LLM-generated, so the same topic can appear in several merges
+            # or in both a merge and the prune list — track deletions so an overlapping
+            # plan neither double-counts nor merges into an already-deleted row.
+            deleted: set[Any] = set()
             for merge in plan.merges:
                 keep = by_topic.get(merge.topic)
-                if keep is None:
+                if keep is None or keep.id in deleted:
                     continue
                 await memory_repo.update_auto_memory(keep.id, content=merge.content)
                 for drop in merge.drop_topics:
                     row = by_topic.get(drop)
-                    if row is not None and drop != merge.topic:
+                    if row is not None and drop != merge.topic and row.id not in deleted:
                         await memory_repo.delete_auto_memory(row.id)
+                        deleted.add(row.id)
                         merged += 1
             for topic in plan.prune_topics:
                 row = by_topic.get(topic)
-                if row is not None:
+                if row is not None and row.id not in deleted:
                     await memory_repo.delete_auto_memory(row.id)
+                    deleted.add(row.id)
                     pruned += 1
     except Exception:  # noqa: BLE001 - dreaming is best-effort; leave memory as-is on error
         logger.warning("consolidation failed for %s", owner_id, exc_info=True)
@@ -95,7 +101,6 @@ async def consolidate(
     try:
         await dream_repo.log_dream_run(
             owner_id,
-            sessions_consolidated=0,
             memories_merged=merged,
             memories_pruned=pruned,
             duration_ms=duration_ms,

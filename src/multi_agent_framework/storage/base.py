@@ -18,6 +18,26 @@ def _normalize_dsn(url: str) -> str:
     return url
 
 
+# Idempotent catch-up statements for a DB created by an older models.py (see
+# create_all): drop retired columns/indexes, then dedupe auto_memory (keep the
+# newest row per owner+topic) so its unique index can be enforced.
+_SCHEMA_PATCHES = (
+    "ALTER TABLE conversations DROP COLUMN IF EXISTS total_cost",
+    "ALTER TABLE conversation_turns DROP COLUMN IF EXISTS execution_model",
+    "ALTER TABLE conversation_turns DROP COLUMN IF EXISTS cost",
+    "ALTER TABLE conversation_turns DROP COLUMN IF EXISTS cache_hit",
+    "ALTER TABLE auto_memory DROP COLUMN IF EXISTS access_count",
+    "ALTER TABLE dream_runs DROP COLUMN IF EXISTS sessions_consolidated",
+    "DROP INDEX IF EXISTS ix_turns_conversation_id",
+    "DROP INDEX IF EXISTS ix_auto_memory_owner",
+    "DELETE FROM auto_memory a USING auto_memory b"
+    " WHERE a.owner_id = b.owner_id AND a.topic = b.topic"
+    " AND (a.updated_at, a.id) < (b.updated_at, b.id)",
+    "DROP INDEX IF EXISTS ix_auto_memory_owner_topic",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_auto_memory_owner_topic ON auto_memory (owner_id, topic)",
+)
+
+
 class Repository:
     """Base class for domain repositories.
 
@@ -39,8 +59,8 @@ class Database:
     Usage:
         db = Database(settings.database_url)
         await db.open()
-        conv_id = await db.conversations.create_conversation(owner_id="shopper:42")
-        await db.memory.save_auto_memory(owner_id="shopper:42", topic=..., content=...)
+        turns = await db.conversations.get_turns(conversation_id)
+        await db.memory.upsert_auto_memory(owner_id="shopper:42", topic=..., content=...)
         await db.close()
     """
 
@@ -88,16 +108,21 @@ class Database:
             await conn.execute(text("SELECT 1"))
 
     async def create_all(self) -> None:
-        """Create any missing tables defined on the models (idempotent).
+        """Create any missing tables defined on the models, then patch an existing
+        schema up to date (idempotent).
 
         We use this instead of Alembic: models.py is the single source of truth
         for the schema, which is fine for a single-developer project with no
-        production data to preserve.
+        production data to preserve. create_all never ALTERs an existing table,
+        so changes to already-created tables are applied as explicit idempotent
+        statements below — rerunning scripts/init_db.py migrates a live dev DB.
         """
         if self._engine is None:
             raise RuntimeError("Database is not open; call await db.open() first")
         async with self._engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+            for statement in _SCHEMA_PATCHES:
+                await conn.execute(text(statement))
 
     async def close(self) -> None:
         if self._engine is None:

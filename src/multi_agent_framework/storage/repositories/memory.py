@@ -5,6 +5,7 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import delete, func, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from multi_agent_framework.storage.base import Repository
 from multi_agent_framework.storage.models import AutoMemory
@@ -18,25 +19,30 @@ _UNSET: Any = object()
 class MemoryRepository(Repository):
     """Read/write operations for the auto-memory layer."""
 
-    async def save_auto_memory(
+    async def upsert_auto_memory(
         self,
         owner_id: str,
         topic: str,
         content: str,
         confidence: float = 0.5,
-        expires_at: datetime | None = None,
-    ) -> UUID:
+    ) -> None:
+        """Insert the (owner, topic) memory or overwrite it in place — one atomic
+        statement against uq_auto_memory_owner_topic, so concurrent turns can't
+        create duplicate topics. A fresh write also clears any expiry."""
+        stmt = pg_insert(AutoMemory).values(
+            owner_id=owner_id, topic=topic, content=content, confidence=confidence
+        )
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["owner_id", "topic"],
+            set_={
+                "content": stmt.excluded.content,
+                "confidence": stmt.excluded.confidence,
+                "updated_at": func.now(),
+                "expires_at": None,
+            },
+        )
         async with self._session() as session, session.begin():
-            mem = AutoMemory(
-                owner_id=owner_id,
-                topic=topic,
-                content=content,
-                confidence=confidence,
-                expires_at=expires_at,
-            )
-            session.add(mem)
-            await session.flush()
-            return mem.id
+            await session.execute(stmt)
 
     async def load_auto_memory(
         self, owner_id: str, topic: str | None = None, limit: int = 200
@@ -49,17 +55,6 @@ class MemoryRepository(Repository):
         async with self._session() as session:
             result = await session.execute(stmt)
             return list(result.scalars().all())
-
-    async def touch_auto_memory(self, memory_id: UUID) -> None:
-        async with self._session() as session, session.begin():
-            await session.execute(
-                update(AutoMemory)
-                .where(AutoMemory.id == memory_id)
-                .values(
-                    access_count=AutoMemory.access_count + 1,
-                    updated_at=func.now(),
-                )
-            )
 
     async def update_auto_memory(
         self,
@@ -92,11 +87,6 @@ class MemoryRepository(Repository):
         """Permanently remove a memory (used by the consolidation/prune step)."""
         async with self._session() as session, session.begin():
             await session.execute(delete(AutoMemory).where(AutoMemory.id == memory_id))
-
-    async def get_auto_memory(self, memory_id: UUID) -> AutoMemory | None:
-        """Fetch a single memory by id, or None if it does not exist."""
-        async with self._session() as session:
-            return await session.get(AutoMemory, memory_id)
 
     async def count_auto_memory(self, owner_id: str, include_expired: bool = False) -> int:
         """How many memories an owner has (drives the size-based dream trigger).

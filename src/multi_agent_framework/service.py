@@ -17,7 +17,7 @@ from multi_agent_framework.learning.signals import (
     reward_from_feedback,
 )
 from multi_agent_framework.memory.consolidation import consolidate, should_dream
-from multi_agent_framework.storage.repositories.conversations import TurnAgentRecord
+from multi_agent_framework.storage import TurnAgentRecord
 
 if TYPE_CHECKING:
     from multi_agent_framework.agents.registry import AgentRegistry
@@ -29,6 +29,10 @@ logger = logging.getLogger(__name__)
 # How many stored turns get replayed into the model's context when a conversation
 # continues (each turn is a user + assistant message pair).
 _MAX_HISTORY_TURNS = 10
+
+# Graph nodes whose model calls are plumbing, not the answer — their tokens
+# (router, critic, memory extractor) must never stream to the client.
+_NON_ANSWER_NODES = {"load_memory", "route", "evaluate", "revise", "save_memory"}
 
 
 @dataclass
@@ -70,6 +74,7 @@ async def run_turn(
     message: str,
     conversation_id: str | None,
     owner_id: str | None,
+    allowed_agents: list[str] | None = None,
 ) -> TurnOutcome:
     """Run one message through the graph, then record telemetry and learning.
 
@@ -78,13 +83,111 @@ async def run_turn(
     If db is None (Postgres was down at boot) the turn still runs and only
     persistence is skipped.
     """
-    history = await _load_history(db, conversation_id)
-    state = build_initial_state(message, conversation_id, owner_id, history=history)
+    conversation_id = await _owned_conversation_id(db, conversation_id, owner_id)
+    history = await _load_history(db, settings, conversation_id)
+    state = build_initial_state(
+        message, conversation_id, owner_id, history=history, allowed_agents=allowed_agents
+    )
 
     started = time.perf_counter()
     result = await graph.ainvoke(state)
     latency_ms = int((time.perf_counter() - started) * 1000)
 
+    await _finish_turn(
+        db=db,
+        settings=settings,
+        registry=registry,
+        message=message,
+        owner_id=owner_id,
+        result=result,
+        latency_ms=latency_ms,
+        first_turn=not history,
+    )
+    return _outcome_from(result)
+
+
+async def stream_turn(
+    *,
+    graph: Any,
+    db: "Database | None",
+    settings: "Settings | None",
+    registry: "AgentRegistry | None",
+    message: str,
+    conversation_id: str | None,
+    owner_id: str | None,
+    allowed_agents: list[str] | None = None,
+):
+    """Streaming twin of run_turn: yields ("stage", info) as each pipeline node
+    finishes, ("token", {text}) for each model token of the answer as it is
+    generated, then ("done", TurnOutcome) after persistence.
+
+    Token filtering: model calls in the plumbing nodes (router, critic, memory)
+    never stream. On a single-agent turn the agent's own tokens stream live; on a
+    multi-agent turn only the synthesizer's tokens do (the parallel specialists
+    would interleave). The final response in "done" is authoritative — a client
+    should replace the streamed draft with it (they differ e.g. after a critic
+    retry, which is signalled by a "revise" stage event).
+    """
+    conversation_id = await _owned_conversation_id(db, conversation_id, owner_id)
+    history = await _load_history(db, settings, conversation_id)
+    state = build_initial_state(
+        message, conversation_id, owner_id, history=history, allowed_agents=allowed_agents
+    )
+
+    result: dict = dict(state)
+    started = time.perf_counter()
+    async for mode, update in graph.astream(state, stream_mode=["updates", "messages"]):
+        if mode == "messages":
+            chunk, metadata = update
+            node = metadata.get("langgraph_node")
+            if node in _NON_ANSWER_NODES:
+                continue
+            # Inner-agent tokens carry the inner graph's node name; only pass them
+            # through when exactly one agent is answering. The synthesizer runs
+            # directly in execute_agents, so multi-agent turns stream that instead.
+            single = len(result.get("current_agents") or []) == 1
+            if node != "execute_agents" and not single:
+                continue
+            text = message_text(chunk)
+            if text:
+                yield "token", {"text": text}
+            continue
+        for node, out in update.items():
+            if isinstance(out, dict):
+                result.update(out)
+            info: dict = {"node": node}
+            if node == "route":
+                info["agents"] = result.get("current_agents") or []
+            elif node == "evaluate":
+                info["eval_pass"] = (result.get("eval_result") or {}).get("pass")
+            yield "stage", info
+    latency_ms = int((time.perf_counter() - started) * 1000)
+
+    await _finish_turn(
+        db=db,
+        settings=settings,
+        registry=registry,
+        message=message,
+        owner_id=owner_id,
+        result=result,
+        latency_ms=latency_ms,
+        first_turn=not history,
+    )
+    yield "done", _outcome_from(result)
+
+
+async def _finish_turn(
+    *,
+    db: "Database | None",
+    settings: "Settings | None",
+    registry: "AgentRegistry | None",
+    message: str,
+    owner_id: str | None,
+    result: dict,
+    latency_ms: int,
+    first_turn: bool,
+) -> None:
+    """Post-turn bookkeeping shared by both chat paths: telemetry, learning, titling."""
     await _persist_turn(
         db=db,
         settings=settings,
@@ -94,9 +197,8 @@ async def run_turn(
         result=result,
         latency_ms=latency_ms,
     )
-
     # A first turn (no stored history) names the conversation, like ChatGPT/Claude do.
-    if not history:
+    if first_turn:
         await _title_conversation(
             db=db,
             settings=settings,
@@ -105,6 +207,9 @@ async def run_turn(
             agent_response=result.get("agent_response"),
         )
 
+
+def _outcome_from(result: dict) -> TurnOutcome:
+    """Map the graph's final state onto the outcome the HTTP layer returns."""
     return TurnOutcome(
         conversation_id=result["conversation_id"],
         agents=result.get("current_agents") or [],
@@ -157,21 +262,112 @@ async def _title_conversation(
         logger.warning("could not title conversation %s", conversation_id, exc_info=True)
 
 
-async def _load_history(db: "Database | None", conversation_id: str | None) -> list[dict]:
-    """The conversation so far as user/assistant messages. Never raises — [] on any miss."""
+async def _owned_conversation_id(
+    db: "Database | None", conversation_id: str | None, owner_id: str | None
+) -> str | None:
+    """The conversation id this turn may use: the given one when it's absent, brand new,
+    or owned by the caller — None (start fresh) when it belongs to someone else.
+
+    This is the /chat counterpart of the ownership checks on the /conversations and
+    /feedback routes: without it, any authenticated caller could resume — and read,
+    through the model's replayed context — another owner's conversation just by
+    posting its UUID, and write their turns into it. Never raises.
+    """
+    if db is None or not conversation_id or owner_id is None:
+        return conversation_id
+    try:
+        conv = await db.conversations.get_conversation(uuid.UUID(conversation_id))
+    except Exception:  # noqa: BLE001 - malformed id / storage error -> let the turn proceed
+        return conversation_id
+    if conv is not None and conv.owner_id != owner_id:
+        logger.warning(
+            "conversation %s belongs to another owner; starting a fresh one", conversation_id
+        )
+        return None
+    return conversation_id
+
+
+async def _load_history(
+    db: "Database | None", settings: "Settings | None", conversation_id: str | None
+) -> list[dict]:
+    """The conversation so far as user/assistant messages. Never raises — [] on any miss.
+
+    Layer 3: only the last _MAX_HISTORY_TURNS are replayed verbatim; anything older is
+    folded into a rolling summary (stored on the conversation, regenerated only when
+    more turns age out) and prepended as a context block instead of being dropped.
+    """
     if db is None or not conversation_id:
         return []
     try:
-        turns = await db.conversations.get_turns(uuid.UUID(conversation_id))
+        cid = uuid.UUID(conversation_id)
+        turns = await db.conversations.get_turns(cid)
     except Exception:  # noqa: BLE001 - malformed id / storage error -> just start fresh
         logger.warning("could not load history for %s", conversation_id, exc_info=True)
         return []
+
     history: list[dict] = []
+    aged_out = turns[:-_MAX_HISTORY_TURNS] if len(turns) > _MAX_HISTORY_TURNS else []
+    if aged_out:
+        summary = await _rolling_summary(db, settings, cid, aged_out)
+        if summary:
+            history.append(
+                {
+                    "role": "user",
+                    "content": (
+                        f"<system-reminder>Summary of the earlier conversation "
+                        f"(turns 1-{len(aged_out)}): {summary}</system-reminder>"
+                    ),
+                }
+            )
     for turn in turns[-_MAX_HISTORY_TURNS:]:
         history.append({"role": "user", "content": turn.user_message})
         if turn.agent_response:
             history.append({"role": "assistant", "content": turn.agent_response})
     return history
+
+
+async def _rolling_summary(
+    db: "Database", settings: "Settings | None", conversation_id: uuid.UUID, aged_out: list
+) -> str | None:
+    """The stored summary covering the aged-out turns, regenerating it when stale."""
+    try:
+        conv = await db.conversations.get_conversation(conversation_id)
+        if conv is None:
+            return None
+        if conv.summary and conv.summarized_turns >= len(aged_out):
+            return conv.summary
+        if settings is None:
+            return conv.summary
+        # New turns have aged out since the last compaction — fold them in.
+        fresh = aged_out[conv.summarized_turns or 0 :]
+        transcript = "\n".join(
+            f"User: {t.user_message}\nAssistant: {t.agent_response or ''}" for t in fresh
+        )
+        model = init_chat_model(
+            settings.model_id_for_tier("fast"), model_provider=settings.default_provider
+        )
+        base = f"Existing summary: {conv.summary}\n\n" if conv.summary else ""
+        out = await model.ainvoke(
+            [
+                {
+                    "role": "system",
+                    "content": (
+                        "Summarize this conversation in at most 150 words of plain prose. "
+                        "Keep concrete facts: identifiers, names, preferences, "
+                        "decisions, and anything promised to the user."
+                    ),
+                },
+                {"role": "user", "content": f"{base}New turns:\n{transcript}"},
+            ]
+        )
+        summary = message_text(out).strip()
+        if summary:
+            await db.conversations.set_summary(conversation_id, summary, len(aged_out))
+            return summary
+        return conv.summary
+    except Exception:  # noqa: BLE001 - summarization must never break the turn
+        logger.warning("rolling summary failed for %s", conversation_id, exc_info=True)
+        return None
 
 
 async def _persist_turn(
@@ -229,6 +425,8 @@ async def _persist_turn(
             retry_count=result.get("retry_count", 0) or 0,
             model_tier=model_tier(primary),
             latency_ms=latency_ms,
+            tokens_used=sum(int(r.get("tokens") or 0) for r in result.get("agent_runs") or [])
+            or None,
             agents=turn_agents,
         )
     except Exception:  # noqa: BLE001 - persistence is best-effort
@@ -256,13 +454,14 @@ async def record_feedback(
         return FeedbackOutcome(recorded=False)
     try:
         turns = await db.conversations.get_turns(uuid.UUID(str(conversation_id)))
-    except (ValueError, TypeError):
+        if not turns:
+            return FeedbackOutcome(recorded=False)
+        # Credit every agent that took part in the last turn; fall back to the parent row's agent.
+        last = turns[-1]
+        participants = [ta.agent_name for ta in await db.conversations.get_turn_agents(last.id)]
+    except Exception:  # noqa: BLE001 - malformed id / storage error -> just not recorded
+        logger.warning("feedback lookup failed for %s", conversation_id, exc_info=True)
         return FeedbackOutcome(recorded=False)
-    if not turns:
-        return FeedbackOutcome(recorded=False)
-    # Credit every agent that took part in the last turn; fall back to the parent row's agent.
-    last = turns[-1]
-    participants = [ta.agent_name for ta in await db.conversations.get_turn_agents(last.id)]
     if not participants and last.agent_name:
         participants = [last.agent_name]
     if not participants:

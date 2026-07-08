@@ -87,6 +87,14 @@ class AgentRegistry:
         if missing:
             raise RegistryError(f"{file.name}: missing required field(s): {', '.join(missing)}")
 
+        # A YAML scalar (e.g. `tools: search_products`) would otherwise be silently
+        # split into per-character tuples by tuple() in from_dict.
+        for key in ("capabilities", "tools"):
+            if not isinstance(data.get(key), list):
+                raise RegistryError(f"{file.name}: '{key}' must be a list of strings")
+        if "eval_rubric" in data and not isinstance(data["eval_rubric"], list):
+            raise RegistryError(f"{file.name}: 'eval_rubric' must be a list of strings")
+
         defn = AgentDefinition.from_dict(data)
 
         if defn.name != file.stem:
@@ -133,9 +141,6 @@ class AgentRegistry:
 
     def all(self) -> list[AgentDefinition]:
         return [self._agents[name] for name in self.names()]
-
-    def by_capability(self, capability: str) -> list[AgentDefinition]:
-        return [defn for defn in self.all() if capability in defn.capabilities]
 
     def router_menu(self) -> list[dict[str, Any]]:
         """Compact menu the router shows the LLM: name, description, capabilities."""

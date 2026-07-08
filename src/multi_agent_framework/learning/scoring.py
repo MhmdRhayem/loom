@@ -13,18 +13,21 @@ _DEFAULT_SCORE = 0.5  # prior before any data
 async def record_score(
     perf_repo: PerformanceRepository, agent: str, category: str, reward: float | None
 ) -> None:
-    """Fold one reward into the agent's EMA score for this category. Never raises."""
+    """Fold one reward into the agent's EMA score for this category. Never raises.
+
+    The EMA math runs inside the repository's atomic upsert, so concurrent turns
+    compose their rewards instead of overwriting each other.
+    """
     if reward is None or not agent:
         return
     try:
-        existing = await perf_repo.get_agent_performance(agent, category)
-        old = float(existing.score) if existing else _DEFAULT_SCORE
-        new = round((1.0 - _EMA_ALPHA) * old + _EMA_ALPHA * reward, 4)
         passed = reward >= 0.5
-        await perf_repo.upsert_agent_performance(
+        await perf_repo.record_reward(
             agent,
             category,
-            new,
+            reward,
+            alpha=_EMA_ALPHA,
+            prior=_DEFAULT_SCORE,
             success_delta=1 if passed else 0,
             failure_delta=0 if passed else 1,
         )

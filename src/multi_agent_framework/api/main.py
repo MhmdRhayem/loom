@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Collection
 from contextlib import asynccontextmanager
-from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,7 +12,7 @@ from multi_agent_framework.agents.registry import AgentRegistry
 from multi_agent_framework.api.analytics_routes import router as analytics_router
 from multi_agent_framework.api.routes import router
 from multi_agent_framework.core.config import Settings
-from multi_agent_framework.core.graph import build_graph
+from multi_agent_framework.core.graph import ToolProvider, build_graph
 from multi_agent_framework.storage.base import Database
 from multi_agent_framework.storage.redis_store import RedisStore
 
@@ -23,12 +22,19 @@ configure_async_runtime()
 
 logger = logging.getLogger(__name__)
 
-ToolProvider = Callable[[Sequence[str], str | None], Sequence[Any]]
-
 # Turns an incoming request into an owner id (e.g. by validating a Bearer token).
 # Raise fastapi.HTTPException(401) to reject the request. The framework never sees
 # the auth mechanism itself — the composition root owns it.
 IdentityResolver = Callable[[Request], Awaitable[str]]
+
+# The agent names this request may route to / delegate to, or None for no
+# restriction. Same ownership rule as the identity resolver: the composition root
+# decides who sees which agents; the framework only enforces the set.
+AgentVisibility = Callable[[Request], Awaitable[Collection[str] | None]]
+
+# Guards the aggregate /analytics endpoints. Raise fastapi.HTTPException (401/403)
+# to reject — e.g. only an operator/admin account may read cross-user analytics.
+AnalyticsGuard = Callable[[Request], Awaitable[None]]
 
 
 def create_app(
@@ -37,11 +43,15 @@ def create_app(
     *,
     fallback_agent: str | None = None,
     identity_resolver: IdentityResolver | None = None,
+    agent_visibility: AgentVisibility | None = None,
+    analytics_guard: AnalyticsGuard | None = None,
 ) -> FastAPI:
     """Build the FastAPI app for a given agent registry and tool_provider.
 
     With an identity_resolver, chat and conversation reads are scoped to the
-    resolved owner instead of trusting client-supplied owner ids.
+    resolved owner instead of trusting client-supplied owner ids. agent_visibility
+    limits which agents a request can see and use; analytics_guard protects the
+    /analytics endpoints. All three default to None (open).
     """
 
     @asynccontextmanager
@@ -51,6 +61,8 @@ def create_app(
         app.state.registry = registry
         app.state.fallback_agent = fallback_agent
         app.state.identity_resolver = identity_resolver
+        app.state.agent_visibility = agent_visibility
+        app.state.analytics_guard = analytics_guard
 
         db: Database | None = Database(settings.database_url)
         try:

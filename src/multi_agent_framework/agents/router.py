@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Collection
 from typing import Any
 
 from langchain.chat_models import init_chat_model
@@ -35,16 +36,23 @@ class RouterDecision(BaseModel):
     category: str = Field(default="general", description="Short lowercase intent label.")
 
 
-def _format_menu(registry: AgentRegistry) -> str:
+def _format_menu(registry: AgentRegistry, allowed_agents: Collection[str] | None = None) -> str:
     lines = ["Available agents:"]
     for entry in registry.router_menu():
+        # A hidden agent never even appears in the menu the router model sees.
+        if allowed_agents is not None and entry["name"] not in allowed_agents:
+            continue
         caps = ", ".join(entry["capabilities"])
         lines.append(f"- {entry['name']}: {entry['description'].strip()} | capabilities: {caps}")
     return "\n".join(lines)
 
 
-def _build_prompt(registry: AgentRegistry, messages: list[dict[str, Any]]) -> list[dict[str, str]]:
-    system = f"{_INSTRUCTIONS}\n\n{_format_menu(registry)}"
+def _build_prompt(
+    registry: AgentRegistry,
+    messages: list[dict[str, Any]],
+    allowed_agents: Collection[str] | None = None,
+) -> list[dict[str, str]]:
+    system = f"{_INSTRUCTIONS}\n\n{_format_menu(registry, allowed_agents)}"
     recent = [
         {"role": str(m.get("role", "user")), "content": str(m.get("content", ""))}
         for m in messages[-_RECENT_WINDOW:]
@@ -59,17 +67,30 @@ async def route_turn(
     *,
     fallback_agent: str | None = None,
     min_confidence: float = _DEFAULT_MIN_CONFIDENCE,
+    allowed_agents: Collection[str] | None = None,
 ) -> dict[str, Any]:
-    """Pick agents for this turn. Returns ``{agents, confidence, reason, category}``."""
+    """Pick agents for this turn. Returns ``{agents, confidence, reason, category}``.
+
+    allowed_agents (None = no restriction) limits both the menu the model sees and
+    the picks accepted back; the fallback agent is always exempt.
+    """
     model = init_chat_model(
         settings.model_id_for_tier("fast"),
         model_provider=settings.default_provider,
     )
-    decision: RouterDecision = await model.with_structured_output(RouterDecision).ainvoke(
-        _build_prompt(registry, messages)
+    decision: RouterDecision | None = await model.with_structured_output(RouterDecision).ainvoke(
+        _build_prompt(registry, messages, allowed_agents)
     )
+    if decision is None:
+        # with_structured_output returns None when the model answers without calling
+        # the schema tool — treat it like any other unusable decision.
+        decision = RouterDecision(agents=[], confidence=0.0, reason="router returned no decision")
     agents = _validate(
-        decision, registry, fallback_agent=fallback_agent, min_confidence=min_confidence
+        decision,
+        registry,
+        fallback_agent=fallback_agent,
+        min_confidence=min_confidence,
+        allowed_agents=allowed_agents,
     )
     return {
         "agents": agents,
@@ -85,16 +106,24 @@ def _validate(
     *,
     fallback_agent: str | None = None,
     min_confidence: float = _DEFAULT_MIN_CONFIDENCE,
+    allowed_agents: Collection[str] | None = None,
 ) -> list[str]:
     """Validate the model's picks and apply the fallback rules.
 
     Pure and I/O-free, so the routing policy can be tested without an LLM call.
     """
     has_fallback = bool(fallback_agent) and fallback_agent in registry
-    valid = [a for a in decision.agents if a in registry]
+    # dict.fromkeys: drop duplicate picks while keeping the model's relevance order.
+    valid = [
+        a
+        for a in dict.fromkeys(decision.agents)
+        if a in registry and (allowed_agents is None or a in allowed_agents or a == fallback_agent)
+    ]
 
     if not valid:
-        return [fallback_agent] if has_fallback else list(decision.agents)
+        # No usable pick: the fallback if there is one, else nothing — never the raw,
+        # unvalidated model output (hallucinated or hidden names must not run).
+        return [fallback_agent] if has_fallback else []
 
     if has_fallback and decision.confidence < min_confidence and len(valid) == 1:
         return [fallback_agent]

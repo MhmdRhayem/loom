@@ -14,6 +14,7 @@ class OverviewResponse(BaseModel):
     retry_rate: float | None = None
     total_memories: int = 0
     dream_runs: int = 0
+    total_tokens: int = 0
 
 
 class AgentTurnStats(BaseModel):
@@ -67,7 +68,6 @@ class MemoryCount(BaseModel):
 
 class DreamRunInfo(BaseModel):
     owner_id: str
-    sessions_consolidated: int
     memories_merged: int
     memories_pruned: int
     duration_ms: int

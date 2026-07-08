@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+import json
+import logging
+import uuid
+
 from fastapi import APIRouter, Request
+from fastapi.responses import StreamingResponse
 
 from multi_agent_framework import service
 from multi_agent_framework.api.models import (
@@ -15,6 +20,8 @@ from multi_agent_framework.api.models import (
     HealthResponse,
 )
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
 
 
@@ -28,6 +35,19 @@ async def resolve_owner(request: Request, fallback: str | None = None) -> str | 
     if resolver is None:
         return fallback
     return await resolver(request)
+
+
+async def resolve_allowed_agents(request: Request) -> list[str] | None:
+    """The agent names this request may use, or None when unrestricted.
+
+    Mirror of resolve_owner for the agent_visibility hook (see create_app); with no
+    hook configured every agent is visible.
+    """
+    resolver = getattr(request.app.state, "agent_visibility", None)
+    if resolver is None:
+        return None
+    allowed = await resolver(request)
+    return None if allowed is None else sorted(allowed)
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -61,10 +81,15 @@ async def health(request: Request) -> HealthResponse:
 
 @router.get("/agents", response_model=AgentsResponse)
 async def agents(request: Request) -> AgentsResponse:
-    """The agent roster (name, role, capabilities, tools, tier, fallback) for the UI."""
+    """The agent roster (name, role, capabilities, tools, tier, fallback) for the UI.
+
+    Filtered by the agent_visibility hook, so a client only ever sees the agents
+    it can actually reach.
+    """
     registry = getattr(request.app.state, "registry", None)
     if registry is None:
         return AgentsResponse(agents=[], fallback_agent=None)
+    allowed = await resolve_allowed_agents(request)
     infos = [
         AgentInfo(
             name=defn.name,
@@ -79,9 +104,26 @@ async def agents(request: Request) -> AgentsResponse:
             memory_scope=defn.memory_scope,
         )
         for defn in registry.all()
+        if allowed is None or defn.name in allowed
     ]
     return AgentsResponse(
         agents=infos, fallback_agent=getattr(request.app.state, "fallback_agent", None)
+    )
+
+
+def _chat_response(outcome: "service.TurnOutcome") -> ChatResponse:
+    return ChatResponse(
+        conversation_id=outcome.conversation_id,
+        agent=", ".join(outcome.agents) if outcome.agents else None,
+        response=outcome.response,
+        eval=outcome.eval,
+        current_agents=outcome.agents,
+        routing_confidence=outcome.routing_confidence,
+        routing_reason=outcome.routing_reason,
+        query_category=outcome.query_category,
+        tool_calls=outcome.tool_calls,
+        agent_runs=[AgentRun(**run) for run in outcome.agent_runs],
+        retry_count=outcome.retry_count,
     )
 
 
@@ -97,27 +139,68 @@ async def chat(request: Request, payload: ChatRequest) -> ChatResponse:
         message=payload.message,
         conversation_id=payload.conversation_id,
         owner_id=await resolve_owner(request, payload.owner_id),
+        allowed_agents=await resolve_allowed_agents(request),
     )
-    return ChatResponse(
-        conversation_id=outcome.conversation_id,
-        agent=", ".join(outcome.agents),
-        response=outcome.response,
-        eval=outcome.eval,
-        current_agents=outcome.agents,
-        routing_confidence=outcome.routing_confidence,
-        routing_reason=outcome.routing_reason,
-        query_category=outcome.query_category,
-        tool_calls=outcome.tool_calls,
-        agent_runs=[AgentRun(**run) for run in outcome.agent_runs],
-        retry_count=outcome.retry_count,
+    return _chat_response(outcome)
+
+
+@router.post("/chat/stream")
+async def chat_stream(request: Request, payload: ChatRequest) -> StreamingResponse:
+    """Server-sent events variant of /chat: emits a `stage` event as each pipeline
+    node finishes, then a final `done` event carrying the full ChatResponse."""
+    state = request.app.state
+    # Resolve identity before the stream starts so auth failures are a clean 401.
+    owner_id = await resolve_owner(request, payload.owner_id)
+    allowed_agents = await resolve_allowed_agents(request)
+
+    async def events():
+        # Once the stream has started, an exception can't become an HTTP 500 anymore —
+        # emit a terminal error event so the client gets a reason instead of a dead socket.
+        try:
+            async for kind, data in service.stream_turn(
+                graph=state.graph,
+                db=getattr(state, "db", None),
+                settings=getattr(state, "settings", None),
+                registry=getattr(state, "registry", None),
+                message=payload.message,
+                conversation_id=payload.conversation_id,
+                owner_id=owner_id,
+                allowed_agents=allowed_agents,
+            ):
+                if kind == "token":
+                    yield f"data: {json.dumps({'type': 'token', **data})}\n\n"
+                elif kind == "stage":
+                    yield f"data: {json.dumps({'type': 'stage', **data})}\n\n"
+                else:
+                    body = _chat_response(data).model_dump()
+                    yield f"data: {json.dumps({'type': 'done', 'payload': body})}\n\n"
+        except Exception as exc:  # noqa: BLE001 - surface the failure to the client
+            logger.warning("chat stream failed", exc_info=True)
+            yield f"data: {json.dumps({'type': 'error', 'message': str(exc)})}\n\n"
+
+    return StreamingResponse(
+        events(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"}
     )
 
 
 @router.post("/feedback", response_model=FeedbackResponse)
 async def feedback(request: Request, payload: FeedbackRequest) -> FeedbackResponse:
-    """Record a thumbs rating against the conversation's last turn. Never raises."""
+    """Record a thumbs rating against the conversation's last turn. Never raises.
+
+    With an identity resolver configured you can only rate your own conversations;
+    anyone else's id is silently not recorded (feedback is best-effort anyway).
+    """
+    owner = await resolve_owner(request)
+    db = getattr(request.app.state, "db", None)
+    if owner is not None and db is not None:
+        try:
+            conv = await db.conversations.get_conversation(uuid.UUID(payload.conversation_id))
+        except Exception:  # noqa: BLE001 - malformed id / storage error -> just not recorded
+            conv = None
+        if conv is None or conv.owner_id != owner:
+            return FeedbackResponse(recorded=False, agent=None)
     outcome = await service.record_feedback(
-        db=getattr(request.app.state, "db", None),
+        db=db,
         conversation_id=payload.conversation_id,
         rating=payload.rating,
     )
@@ -129,7 +212,12 @@ async def feedback(request: Request, payload: FeedbackRequest) -> FeedbackRespon
 
 @router.post("/dream", response_model=DreamResponse)
 async def dream(request: Request, owner_id: str, force: bool = False) -> DreamResponse:
-    """Run memory consolidation for an owner, when it's due or force is set."""
+    """Run memory consolidation for an owner, when it's due or force is set.
+
+    With an identity resolver configured, you can only dream for yourself —
+    the query parameter is overridden by the verified identity.
+    """
+    owner_id = await resolve_owner(request, owner_id)
     outcome = await service.run_dream(
         db=getattr(request.app.state, "db", None),
         settings=getattr(request.app.state, "settings", None),
