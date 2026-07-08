@@ -1,9 +1,11 @@
 # Demo Testing Guide — Shopping Assistant
 
-A hands-on script for testing the 7-agent e-commerce demo yourself and checking the results.
+A hands-on script for testing the 8-agent e-commerce demo yourself and checking the results.
 Every prompt below is grounded in the seeded database, so you can verify the answers are **real
-data**, not hallucinations. Work through the scenarios in order — each one tests a different part
-of the framework (routing, tools, multi-agent, delegation, memory, evaluation, fail-silent).
+data**, not hallucinations. Work through the scenarios in order — together they cover every
+feature of the system: routing, tools, multi-agent, delegation, memory, evaluation, fail-silent,
+account isolation, the merchant/admin surfaces, semantic retrieval (RAG), token streaming, and
+the interface features around them.
 
 ---
 
@@ -12,9 +14,9 @@ of the framework (routing, tools, multi-agent, delegation, memory, evaluation, f
 ```powershell
 cd "C:\Mhmd\M2 AI and Data Engineering\Final Project\multi-agent-framework"
 
-docker compose up -d                                    # Postgres :5433 + Redis :6379
-.\.venv\Scripts\python.exe scripts\init_db.py           # framework schema (idempotent)
-.\.venv\Scripts\python.exe -m demo.shopping_assistant.seed   # shop data (idempotent)
+docker compose up -d                                    # Postgres :5433 + Redis :6379 + Qdrant :6333
+.\.venv\Scripts\python.exe scripts\init_db.py           # framework schema (idempotent, self-migrating)
+.\.venv\Scripts\python.exe -m demo.shopping_assistant.seed   # shop data + semantic index (idempotent)
 
 # Backend (keep this terminal open) — .env already has OPENAI_API_KEY + DEFAULT_PROVIDER=openai
 .\.venv\Scripts\python.exe -m uvicorn --env-file .env demo.shopping_assistant.app:app --reload
@@ -25,23 +27,29 @@ npm run dev          # http://localhost:5173
 ```
 
 **Sanity check before testing:** open http://localhost:8000/health — expect
-`{"status":"ok","components":{"redis":"ok","postgres":"ok"}}`.
+`{"status":"ok","components":{"redis":"ok","postgres":"ok"}}`. (Qdrant isn't in the health
+payload on purpose: if it's down, semantic retrieval silently falls back to keyword search —
+Scenario M shows the difference.)
 
 To wipe and reseed the shop data at any point:
 `.\.venv\Scripts\python.exe -m demo.shopping_assistant.seed --reset`
 
 **Sign in first.** Chat, orders, and conversations are per-account now — the app sends you
-to the login page until you sign in. Seeded accounts:
+to the login page until you sign in. There are **three roles** (the login page shows the
+three main accounts with their credentials — click one to fill the form). Seeded accounts:
 
-| Email | Password | Their orders |
-|---|---|---|
-| `mohammad@example.com` | `mohammad123` | ORD-1005 (shipped, DHL), ORD-1006 (processing) |
-| `alice@example.com` | `password123` | ORD-1001 (shipped, UPS), ORD-1004 (cancelled) |
-| `bob@example.com` | `password123` | ORD-1002 (delivered — has the RMA) |
-| `carol@example.com` | `password123` | ORD-1003 (processing) |
+| Email | Password | Role | Notes |
+|---|---|---|---|
+| `mohammad@example.com` | `mohammad123` | client | ORD-1005 (shipped, DHL), ORD-1006 (processing) |
+| `merchant@example.com` | `merchant123` | **merchant** | Owns the **Atelier** shop — gets the Products page + the `shop_manager` agent (Scenario K) |
+| `admin@example.com` | `admin123` | **admin** | Dashboard (admin-only), full catalog, Users page (Scenario L) |
+| `alice@example.com` | `password123` | client | ORD-1001 (shipped, UPS), ORD-1004 (cancelled) |
+| `bob@example.com` | `password123` | client | ORD-1002 (delivered — has the RMA) |
+| `carol@example.com` | `password123` | client | ORD-1003 (processing) |
 
-You can only see (and ask the assistant about) **your own** orders, returns, and
-conversations — that's Scenario I below.
+New sign-ups from the login page are always **clients**; roles are assigned by the admin
+on the Users page. You can only see (and ask the assistant about) **your own** orders,
+returns, and conversations — that's Scenario I below.
 
 ---
 
@@ -49,10 +57,13 @@ conversations — that's Scenario I below.
 
 | Surface | What you see |
 |---|---|
-| **Chat page** (http://localhost:5173) | The reply, plus a collapsible **trace** under each answer: routed category + confidence, the router's reason, each agent's run with its tool calls, the eval score/pass badge, and a retry badge if the critic forced a retry. |
-| **Conversations page** | Every persisted conversation and turn — proof that persistence works. |
-| **Dashboard page** | Aggregate analytics: per-agent volume and eval scores, routing distribution, timeseries, memory stats. |
-| **Raw API** | `POST http://localhost:8000/chat` returns the full trace as JSON (`current_agents`, `routing_confidence`, `routing_reason`, `query_category`, `tool_calls`, `agent_runs`, `eval`, `retry_count`). |
+| **Chat page** (http://localhost:5173) | The reply **streams in token by token** (with a blinking caret and a **Stop** button); before tokens arrive, the typing indicator narrates the pipeline stage. Under each answer: a collapsible **trace** — routed category + confidence, the router's reason, each agent's run with its tool calls and token count, the eval score/pass badge, a retry badge if the critic forced a retry — plus 👍/👎 feedback. The sidebar keeps a recent-chats list with AI-generated titles. |
+| **Storefront** | Public catalog with filters and generated product art; signed in, the header's **Cart button (live badge)** opens a slide-over drawer: per-line **quantity steppers**, remove, subtotal, checkout with the declined-payment retry flow, and "added to cart" toasts. Order rows **expand in place** to show their line items. |
+| **Conversations page** | Every persisted conversation and turn — proof that persistence works; conversations resume from the sidebar or URL. |
+| **Dashboard page** | **Admin only** (`admin@example.com`) — aggregate analytics: per-agent volume and eval scores, routing distribution, timeseries, memory stats and dream runs. The `/analytics/*` endpoints answer **403** for everyone else. |
+| **Products page** | Merchant/admin only — shop stats, sales rollup, product CRUD, customer orders containing the shop's items, and the **pending AI changes** queue (Scenario K). |
+| **Everywhere** | A **sun/moon toggle** (sidebar footer, and top-right on the login page) switches light/dark theme — persisted, OS-preference default. On a narrow window the sidebar collapses behind a **burger button**. |
+| **Raw API** | `POST http://localhost:8000/chat` returns the full trace as JSON (`current_agents`, `routing_confidence`, `routing_reason`, `query_category`, `tool_calls`, `agent_runs`, `eval`, `retry_count`); `POST /chat/stream` is the same turn as SSE (`stage`, `token`, `done`, `error` events). |
 
 Raw API example (PowerShell) — log in first, then send the Bearer token; the backend takes
 the owner from the token, so there is no `owner_id` in the request:
@@ -67,7 +78,7 @@ Invoke-RestMethod http://localhost:8000/chat -Method Post -Headers $headers -Con
 
 ---
 
-## 3. The 7 agents
+## 3. The 8 agents
 
 The roster the router picks from. Each agent is defined by one YAML file in
 [demo/shopping_assistant/definitions/](demo/shopping_assistant/definitions/) — the router routes on the
@@ -78,10 +89,11 @@ The roster the router picks from. Each agent is defined by one YAML file in
 | `order_tracking` | fast | `order_api`, `list_my_orders` | "Where is my order?" — order status, shipment tracking, and delivery estimates for already-placed orders. Read-only: never modifies anything. |
 | `catalog_advisor` | standard | `product_db`, `price_api` | All pre-purchase catalog help: search, recommend, filter, and compare products, answer product questions, and find the best price including deals and coupons. |
 | `fit_stylist` | standard | `style_engine` | Sizing and style advice tailored to the shopper: size recommendations, fit diagnosis, outfit suggestions. Kept separate from `catalog_advisor` on purpose — their boundary is the router stress test in Scenario C1. |
-| `checkout_payments` | deep | `cart_api`, `payment_api` | Problems completing a purchase: stock checks, cart and checkout failures, payment/promo/billing issues at the point of sale. Works on the **in-flight cart**, not placed orders — that's what keeps it crisp against `order_tracking`. |
+| `checkout_payments` | deep | `cart_api`, `payment_api`, `price_api` | Problems completing a purchase: stock checks, cart and checkout failures, payment/promo/billing issues at the point of sale (`price_api` lets it actually verify coupons). Works on the **in-flight cart**, not placed orders — that's what keeps it crisp against `order_tracking`. |
 | `returns_refunds` | standard | `returns_api` | Returns, refunds, and exchanges under the store's return policy — post-purchase reversals only, not tracking or new purchases. |
 | `account_assistant` | fast | `account_api` | Account and profile help: login issues, password/security resets, updating profile, addresses, and settings. |
 | `support_concierge` | standard | `faq_kb`, `ticket_api` | The catch-all: policy/FAQ answers, complaints, clarifying ambiguous requests, and escalation to a human with full context. The safe destination when no specialist fits. |
+| `shop_manager` | standard | `list_shop_products`, `propose_product_*`, `list_pending_changes` | **Merchant-only** — proposes catalog changes (add/update/remove products) for the merchant's own shop. Proposals are queued as pending; nothing is applied until the merchant approves it on the Products page. Hidden from clients/admins: not in their router menu, `/agents`, or `ask_*` delegation tools. |
 
 Two structural details worth knowing when reading traces:
 
@@ -107,15 +119,28 @@ Use this to verify answers. If the assistant says anything that contradicts this
 | ORD-1005 | mohammad@example.com | shipped | DHL, tracking `JD014600003RS034`, ETA 2026-07-05 |
 | ORD-1006 | mohammad@example.com | processing | no tracking yet, ETA 2026-07-08 |
 
+**Order line items** (what the merchant's Orders view is built from):
+
+| Order | Items | Shops involved |
+|---|---|---|
+| ORD-1001 | 1× SKU-1001 Aurora Midi Dress @ $49 | Atelier |
+| ORD-1002 | 1× SKU-1004 High-Rise Slim Jeans @ $58 + 1× SKU-1002 Linen Wrap Dress @ $62 | **Everyday + Atelier (mixed on purpose)** — the Atelier merchant sees only the dress line, never the jeans |
+| ORD-1003 | 1× SKU-1005 Merino Wool Sweater @ $89 | Atelier |
+| ORD-1004 | 1× SKU-1003 Everyday Cotton Tee @ $18 | Everyday |
+| ORD-1005 | 1× SKU-1006 Classic Trench Coat @ $145 | Atelier |
+| ORD-1006 | 1× SKU-1002 Linen Wrap Dress @ $62 | Atelier |
+
 **Returns:** ORD-1002 has an approved return `RMA-55872`, 12 days left in window, refund to original payment, next step = drop at FedEx with emailed label.
 
-**Cart & payment:** the current cart holds 1× Aurora Midi Dress (SKU-1001, $49). The cart's payment is **declined — card_expired**.
+**Cart & payment:** carts are per-account. **mohammad@example.com**'s cart holds 1× Aurora Midi Dress (SKU-1001, $49) and his payment is **declined — card_expired** (the payment-diagnosis scenario; checkout offers "use a different card"). Other accounts start with empty carts.
 
 **Products (highlights):** Aurora Midi Dress $49 · Linen Wrap Dress $62 · Everyday Cotton Tee $18 **(out of stock)** · High-Rise Slim Jeans $58 · Merino Wool Sweater $89 **(15% off this week)** · Classic Trench Coat $145 · Leather Ankle Boots $120 · Silk Scarf $35 · Canvas Tote Bag $28 **(out of stock)** · Lounge Jogger Pants $42 **(10% off this week)**.
 
 **Coupons:** `SAVE10` (10% any order) · `WELCOME20` (20%, min $75) · `DRESS15` (15% on SKU-1001) · `SHOES25` (25% on SKU-1007 boots).
 
-**Policies (FAQ):** free shipping over $50 (3–5 days; express $9.99, 1–2 days) · 30-day returns, unworn with tags · one coupon per order (stacks with site-wide deals) · Visa/Mastercard/Amex/PayPal/Apple Pay · password reset via "Forgot password" link.
+**Policies (FAQ):** a 14-entry handbook — free shipping over $50 (3–5 days; express $9.99, 1–2 days) · international shipping $19.99 flat, 7–14 days · 30-day returns, unworn with tags · refunds within 2 business days of inspection · free size/color exchanges · damaged items: photo within 7 days, free replacement or refund · order changes/cancellation free until shipped · one coupon per order (stacks with site-wide deals) · 7-day price adjustments · Visa/Mastercard/Amex/PayPal/Apple Pay · cards stored by the processor, never on our servers · size guide per product page · password reset via "Forgot password" link · data never sold, export/delete on request.
+
+**Semantic retrieval (RAG):** `faq_kb` and `product_db` search **by meaning** — the corpora are embedded into **Qdrant** (`docker compose up -d` starts it; see `VECTOR_DB_CHOICE.md`), and `python -m demo.shopping_assistant.seed` indexes them (needs `OPENAI_API_KEY`; model via `EMBEDDING_MODEL`, default `openai:text-embedding-3-small`; server via `QDRANT_URL`, default `http://localhost:6333`). Try *"can I get my money back if it doesn't fit?"* (no keyword overlap with any entry — should cite `policy/returns`) or *"something elegant for a formal garden party"* (should surface dresses). With Qdrant down or no API key, both tools fall back to keyword matching.
 
 **Fit engine (stub):** always recommends **size M**, says items "run slightly large; size down if between sizes", and suggests ankle boots + a thin belt.
 
@@ -125,9 +150,14 @@ Use this to verify answers. If the assistant says anything that contradicts this
 
 Send each prompt in a **new chat**. Check the trace: the right agent, the right tool, and an answer matching the cheat sheet.
 
-> Orders belong to accounts now: run **A1 signed in as alice** and **A5 signed in as bob**
-> (asking from the wrong account correctly answers "not found on this account" — that's
-> Scenario I). The other prompts work from any account.
+> Orders, carts, and tickets belong to accounts now: run **A1 signed in as alice**,
+> **A4 signed in as mohammad** (his payment is the seeded declined one), and
+> **A5 signed in as bob** (asking from the wrong account correctly answers "not found
+> on this account" — that's Scenario I). The other prompts work from any account.
+> While a turn runs, the typing indicator narrates the pipeline stage
+> ("asking order_tracking…", "reviewing the answer…"), then the answer **types out live**,
+> token by token — that's the /chat/stream SSE feed. **Stop** aborts mid-generation; if the
+> critic forces a retry you'll see "improving the answer…" and the draft restart.
 
 | # | Say this | Expected agent | Expected tool | Answer must contain |
 |---|---|---|---|---|
@@ -236,11 +266,103 @@ The privacy layer: every account only ever sees its own data, and the enforcemen
      tool itself refused, not the model's goodwill.
 3. **Conversations page:** shows only your own; opening another account's conversation
    URL directly returns **404**.
-4. Sign in as **alice** and confirm the mirror image (sees ORD-1001/1004, not mohammad's).
+4. **Chat resume is owner-checked too:** POST `/chat` with *another account's*
+   `conversation_id` (grab one as alice, replay it as bob via the raw-API snippet) — the
+   response comes back with a **fresh** conversation id: the foreign history is never
+   loaded into the model's context, and nothing is written into the other account's thread.
+5. Sign in as **alice** and confirm the mirror image (sees ORD-1001/1004, not mohammad's).
+6. **Chat rate limit:** a script hammering `/chat` gets **429 "too many messages"** after
+   20 requests in a minute per account (Redis-backed, fails open if Redis is down —
+   availability guards fail open, identity guards fail closed).
+
+## 14. Scenario J — buy something (the full loop)
+
+1. **Sign in** (or use the **Create account** tab on the login page to register a fresh user).
+2. Storefront → products → **Add to cart** on anything in stock; a toast confirms it and
+   the header's cart badge counts up. Open the **cart drawer** and try the **+/− steppers**.
+3. In the drawer → **Checkout**. As mohammad the first attempt fails with the seeded
+   *declined — card_expired* payment; click **Use a different card** and it goes through.
+4. You get a new order id (ORD-1007+). Check the orders tab, then ask the assistant
+   *"where is my order ORD-100X?"* — the order you just placed is real, tracked data.
+5. Bonus: five wrong passwords for the same email within ten minutes → login answers
+   **429 too many failed attempts** (Redis-backed rate limiting).
+
+To produce the thesis's benchmark numbers (routing accuracy, eval scores, latency, tokens):
+```powershell
+.\.venv\Scripts\python.exe scripts\benchmark.py                # CSV lands in benchmarks/
+.\.venv\Scripts\python.exe scripts\benchmark.py --label eval-off   # after restarting with ENABLE_EVALUATION=false
+```
+
+## 15. Scenario K — merchant (own shop + AI proposals with approval)
+
+Sign in as **merchant** (`merchant@example.com` / `merchant123`). The sidebar gains a
+**Products** link; everything is scoped to the **Atelier** shop server-side.
+
+1. **Products page:** the stats strip shows Atelier-only numbers; the catalog table lists
+   only Atelier products (no shop column — merchants don't pick shops).
+2. **Orders tab:** ORD-1001, 1002, 1003, 1005, 1006 appear (they contain Atelier items);
+   **ORD-1002 shows only the Linen Wrap Dress line** — the Everyday jeans in the same
+   order are invisible, and no customer emails are shown anywhere.
+3. **Manual CRUD:** add a product with the form (it appears instantly in the Storefront
+   with generated art), edit its price, then delete it. Editing an Everyday SKU via the
+   API answers **404** — cross-shop existence never leaks.
+4. **AI proposal loop (the headline):** in **Chat**, say
+   *"Add a red summer dress for $45 to my shop."*
+   - The trace shows `shop_manager` with a `propose_product_create` call, and the reply
+     says the change is **pending your approval**. The catalog is untouched so far.
+   - Products page → **Pending AI changes** shows the proposal with its payload;
+     click **Approve** → the product appears in the catalog and the public Storefront.
+     (Reject discards it without touching the catalog.)
+5. **Visibility check:** sign in as **mohammad** (client) and ask the chat to
+   *"add a product to the shop"* — it can never reach `shop_manager` (the agent isn't in
+   the client's router menu, `/agents` roster, or any `ask_*` tool); expect
+   `support_concierge` or `catalog_advisor` instead. `GET /manage/products` with a client
+   token → **403**.
+
+## 16. Scenario L — admin (dashboard, full catalog, users)
+
+Sign in as **admin** (`admin@example.com` / `admin123`). The sidebar gains **Products**,
+**Dashboard**, and **Users**.
+
+1. **Dashboard:** loads normally as admin. As any other account,
+   `GET http://localhost:8000/analytics/overview` with the Bearer token → **403**
+   (and the Dashboard link isn't even rendered).
+2. **Products page:** all shops, with a shop column and a shop selector when creating;
+   the orders tab shows every order with all lines **and** the customer email.
+3. **Users page:** every account with its role. Promote a fresh sign-up to merchant
+   (a shop must be selected), demote them back, delete a test account. Your own row is
+   locked — self role-change and self-delete answer **400** (no locking yourself out).
+4. **Revocation is immediate:** delete a test account while it is signed in in another
+   browser — its very next request answers **401 "account no longer exists"**, even though
+   its token is formally valid for 24h (existence and role are read fresh per request).
+
+## 17. Scenario M — semantic retrieval (RAG over Qdrant)
+
+`faq_kb` (policy handbook) and `product_db` (catalog) retrieve **by meaning**: the corpora
+are embedded into two Qdrant collections (`loom_faq`, `loom_products`) at seed time, each
+query is embedded per call, and the closest documents ground the answer. Why Qdrant and not
+Milvus/Chroma/Weaviate/pgvector is documented in [VECTOR_DB_CHOICE.md](VECTOR_DB_CHOICE.md).
+
+1. **Paraphrase with zero keyword overlap:** ask *"can I get my money back if it doesn't
+   fit?"* — the trace shows `faq_kb`, and the answer cites the 30-day returns policy
+   (source `policy/returns`). No word of that question appears in the policy entry: this
+   is the query keyword matching cannot answer.
+2. **Descriptive product search:** *"something elegant for a formal garden party"* —
+   `product_db` returns dresses ranked first (each with a similarity score in the trace),
+   despite zero matching keywords in any product name.
+3. **The score floor:** ask the concierge something wildly off-corpus (*"how do I fix my
+   carburetor?"*) — a weak best match falls **below the floor** and the tool answers with
+   the honest "couldn't find that in our help center" fallback rather than citing noise.
+4. **Graceful degradation:** `docker stop maf-qdrant`, ask A7 again — it still answers
+   (keyword fallback), just less clever on paraphrases. `docker start maf-qdrant` restores
+   semantic search with no restart of the backend.
+5. **Idempotent indexing:** re-run the seed — it prints *"Semantic index (Qdrant) up to
+   date."* Edit one FAQ answer in `seed.py`, reseed — exactly the changed documents are
+   re-embedded (stale-content diffing via the stored payload text).
 
 ---
 
-## 14. Results checklist
+## 18. Results checklist
 
 - [ ] A1–A7: each prompt routed to the intended agent, correct tool called, answer matches the cheat sheet
 - [ ] B1–B3: multiple agents in one turn, answers synthesized into a single coherent reply
@@ -251,13 +373,21 @@ The privacy layer: every account only ever sees its own data, and the enforcemen
 - [ ] G: eval scores visible; feedback lands in analytics
 - [ ] H: Postgres down → degraded-but-alive; `ENABLE_MEMORY=false` → memory off, rest intact
 - [ ] I: signed out → login page + 401s; signed in → only your own orders/conversations; the agent can't read another account's order
+- [ ] J: register → add to cart → checkout (declined → new card → placed) → agent tracks the new order; benchmark CSV produced
+- [ ] K: merchant sees only Atelier products/order-lines; AI proposal stays pending until approved, then goes live; clients can never reach `shop_manager`
+- [ ] L: dashboard 200 as admin / 403 as anyone else; admin manages all shops; Users page promotes/deletes with self-lockout blocked; deleted account revoked on its next request
+- [ ] M: paraphrase FAQ + descriptive product search answered semantically with sources/scores; off-corpus query falls back honestly; Qdrant down → keyword fallback, no crash
+- [ ] UI: reply streams token-by-token with Stop; cart drawer + steppers + toasts; order rows expand to line items; theme toggle persists; sidebar collapses on narrow windows
 
 ## Troubleshooting
 
 - **Backend won't start / async errors on Windows:** always run uvicorn **with `--reload`** (works around the Proactor event-loop issue) and **with `--env-file .env`** (env vars aren't loaded automatically).
 - **`401` from `/chat`, `/shop/orders`, or `/conversations`:** you're not signed in (or the token expired — they last 24h). Sign in again.
 - **Provider errors in agent replies:** check `.env` has `OPENAI_API_KEY` and `DEFAULT_PROVIDER=openai`.
-- **Login rejects seeded accounts after pulling new code:** the `accounts` table predates the `password_hash` column — reseed with `--reset`.
+- **Login rejects seeded accounts after pulling new code:** run the seed once (`python -m demo.shopping_assistant.seed`) — it patches missing columns (`role`, `shop`) in place, adds the merchant/admin accounts, and backfills order line items. `--reset` is only needed for a truly broken schema.
+- **Dashboard is missing / `403` from `/analytics/*`:** analytics are admin-only — sign in as `admin@example.com` / `admin123`.
+- **Chat never routes to `shop_manager`:** that agent only exists for merchant accounts — sign in as `merchant@example.com`.
 - **Frontend can't reach API:** backend must be on port 8000; CORS allows `http://localhost:5173` by default.
+- **Semantic answers feel like plain keyword search:** the index probably isn't built — check `docker compose ps` shows `maf-qdrant` up, then re-run the seed and look for "Semantic index (Qdrant): embedded N documents". Changing `EMBEDDING_MODEL` to a different dimension requires deleting the two collections once (`curl -X DELETE http://localhost:6333/collections/loom_faq` and `.../loom_products`), then reseeding.
+- **`429` from `/chat`:** you hit the per-account limit (20 messages/min) — wait a minute.
 - **Weird/stale shop data:** reseed with `python -m demo.shopping_assistant.seed --reset`.
-- **New DB columns not appearing:** `create_all` doesn't ALTER existing tables — drop the schema or use `--reset`.

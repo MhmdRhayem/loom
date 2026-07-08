@@ -5,8 +5,8 @@
 A reusable core for multi-agent LLM assistants: an LLM **router** picks one agent per
 turn, agents are **declarative YAML** (not Python subclasses), and tools are **plain
 functions**. The framework (`src/multi_agent_framework/`) imports nothing from `demo/` —
-you build your own assistant by filling **three seams**. A 7-agent e-commerce demo ships
-as a worked example. Depth: **[ARCHITECTURE.md](ARCHITECTURE.md)**.
+you build your own assistant by filling **three seams**. An 8-agent e-commerce demo with
+a React frontend ships as a worked example. Depth: **[ARCHITECTURE.md](ARCHITECTURE.md)**.
 
 One `/chat` turn runs a LangGraph pipeline:
 `load_memory → route → execute_agents → evaluate → save_memory`, with a
@@ -35,13 +35,16 @@ app = create_app(registry, get_tools, fallback_agent="concierge")  # your own ca
 
 ```
 src/multi_agent_framework/   the framework (reusable; no app-specific knowledge)
-demo/shopping_assistant/     a worked consumer: 7-agent e-commerce assistant + real shop DB
+demo/shopping_assistant/     a worked consumer: 8-agent e-commerce assistant + real shop DB
+frontend/                    React + Vite UI for the demo (login, chat, storefront, dashboard)
 scripts/init_db.py           create the framework schema from the ORM models
 ```
 
 ## Quickstart
 
-Prereqs: Python 3.12+, Docker. Run from the repo root.
+Prereqs: Python 3.12+, Node.js 20+, Docker. Run from the repo root.
+
+### 1. Backend (API on port 8000)
 
 ```bash
 python -m venv .venv
@@ -50,7 +53,7 @@ pip install -e ".[dev]"
 
 docker compose up -d                   # Postgres :5433, Redis :6379
 python scripts/init_db.py              # framework schema
-python -m demo.shopping_assistant.seed # demo "shop" data (run once)
+python -m demo.shopping_assistant.seed # demo "shop" data (safe to re-run; also migrates)
 
 # provider key in .env — Anthropic is the default
 #   ANTHROPIC_API_KEY=...
@@ -58,13 +61,37 @@ python -m demo.shopping_assistant.seed # demo "shop" data (run once)
 python -m uvicorn --env-file .env demo.shopping_assistant.app:app --reload
 ```
 
+### 2. Frontend (UI on port 5173)
+
+In a second terminal:
+
 ```bash
-curl -X POST localhost:8000/chat -H "content-type: application/json" \
-  -d '{"message":"where is my order ORD-1001?","owner_id":"shopper:alice@example.com"}'
+cd frontend
+npm install                            # first time only
+npm run dev                            # -> http://localhost:5173
 ```
 
-`owner_id` scopes cross-session memory (omit it and the turn just runs without memory).
-`GET /health` reports backend status; the app boots fail-soft even if Postgres/Redis are down.
+Open **http://localhost:5173** and sign in — the login page lists the demo accounts with
+their passwords (client `mohammad@example.com`, merchant `merchant@example.com`, admin
+`admin@example.com`; one click fills the form). The backend must be running on port 8000
+(CORS already allows the Vite dev server). If the API runs elsewhere, set `VITE_API_URL`.
+
+### Raw API
+
+The demo requires a login — get a token, then chat (the account from the token scopes
+orders, conversations, and memory):
+
+```bash
+curl -X POST localhost:8000/auth/login -H "content-type: application/json" \
+  -d '{"email":"mohammad@example.com","password":"mohammad123"}'
+# -> {"token":"...", ...}
+curl -X POST localhost:8000/chat -H "content-type: application/json" \
+  -H "authorization: Bearer <token>" -d '{"message":"where is my order ORD-1005?"}'
+```
+
+`GET /health` reports backend status; the app boots fail-soft even if Postgres/Redis are
+down. The full manual test script (all scenarios, per-role walkthroughs) is in
+[DEMO_TESTING.md](DEMO_TESTING.md).
 
 ## Status
 
