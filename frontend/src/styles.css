@@ -1,25 +1,61 @@
-/* Loom — single stylesheet, dark theme.
-   Palette: near-black blue-tinted surfaces, violet→cyan gradient accent. */
+/* Loom — single stylesheet, themed via CSS variables.
+   html[data-theme] picks the palette (set before first paint in main.tsx,
+   toggled by the sun/moon button). Light: white/off-white blue-tinted surfaces;
+   dark: deep blue-gray surfaces. Violet→cyan gradient accent in both. */
 
 :root {
-  --bg: #0a0c11;
-  --bg-soft: #10141d;
-  --bg-card: #151a26;
-  --bg-inset: #0d1018;
-  --bg-raised: #1a2030;
-  --border: #232a3b;
-  --border-soft: #1c2331;
-  --text: #e9ecf4;
-  --text-dim: #8e96ac;
-  --accent: #8b7cf6;
-  --accent-2: #38bdf8;
+  --bg: #f4f5fa;
+  --bg-soft: #eef0f7;
+  --bg-card: #ffffff;
+  --bg-inset: #f1f3f9;
+  --bg-raised: #e8ebf4;
+  --border: #d7dbe8;
+  --border-soft: #e4e7f0;
+  --text: #1c2130;
+  --text-dim: #667089;
+  --accent: #6d5df0;
+  --accent-2: #0ea5e9;
+  --accent-text: #5b4bd6;
+  --link: #4f46e5;
   --grad: linear-gradient(135deg, #6d5df0 0%, #8b7cf6 55%, #38bdf8 140%);
-  --ok: #34d399;
-  --warn: #fbbf24;
-  --bad: #f87171;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
-  --shadow-md: 0 10px 30px rgba(0, 0, 0, 0.35);
-  --ring: 0 0 0 3px rgba(139, 124, 246, 0.22);
+  --ok: #10b981;
+  --warn: #f59e0b;
+  --bad: #ef4444;
+  --ok-text: #047857;
+  --bad-text: #b91c1c;
+  --danger: #dc2626;
+  --placeholder: #9aa2b8;
+  --scroll-hover: #c3c9dc;
+  --sidebar-bg: rgba(255, 255, 255, 0.75);
+  --overlay: rgba(15, 17, 23, 0.45);
+  --shadow-sm: 0 1px 2px rgba(23, 26, 40, 0.06);
+  --shadow-md: 0 10px 30px rgba(23, 26, 40, 0.1);
+  --ring: 0 0 0 3px rgba(109, 93, 240, 0.16);
+}
+
+[data-theme='dark'] {
+  --bg: #0f1117;
+  --bg-soft: #171a26;
+  --bg-card: #161925;
+  --bg-inset: #12141e;
+  --bg-raised: #232839;
+  --border: #2e3450;
+  --border-soft: #232839;
+  --text: #e8eaf3;
+  --text-dim: #9aa3bd;
+  --accent: #8b7cf6;
+  --accent-text: #a99df8;
+  --link: #93a2f8;
+  --ok-text: #34d399;
+  --bad-text: #f87171;
+  --danger: #f87171;
+  --placeholder: #5f6880;
+  --scroll-hover: #3a415c;
+  --sidebar-bg: rgba(17, 19, 28, 0.75);
+  --overlay: rgba(5, 6, 10, 0.6);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 10px 30px rgba(0, 0, 0, 0.45);
+  --ring: 0 0 0 3px rgba(139, 124, 246, 0.28);
 }
 
 * {
@@ -61,7 +97,7 @@ body {
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #2e3750;
+  background: var(--scroll-hover);
   border: 2px solid transparent;
   background-clip: content-box;
 }
@@ -77,7 +113,7 @@ body {
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  background: rgba(16, 20, 29, 0.75);
+  background: var(--sidebar-bg);
   border-right: 1px solid var(--border-soft);
   padding: 22px 14px 18px;
   backdrop-filter: blur(6px);
@@ -116,7 +152,28 @@ body {
 .sidebar nav {
   display: flex;
   flex-direction: column;
+  gap: 16px;
+}
+
+/* a nav group: optional small heading + its (possibly indented) links */
+.nav-section {
+  display: flex;
+  flex-direction: column;
   gap: 3px;
+}
+
+.nav-heading {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  color: var(--text-dim);
+  margin: 0 12px 3px;
+}
+
+.sidebar nav a.sub {
+  padding: 7px 12px 7px 22px;
+  font-size: 13px;
 }
 
 .sidebar nav a {
@@ -137,8 +194,8 @@ body {
 }
 
 .sidebar nav a.active {
-  background: rgba(139, 124, 246, 0.14);
-  color: #c7bfff;
+  background: rgba(109, 93, 240, 0.1);
+  color: var(--accent-text);
   font-weight: 600;
 }
 
@@ -181,7 +238,7 @@ body {
 }
 
 .recent-row.active {
-  background: rgba(139, 124, 246, 0.14);
+  background: rgba(109, 93, 240, 0.1);
 }
 
 .recent-item {
@@ -203,7 +260,7 @@ body {
 }
 
 .recent-row.active .recent-item {
-  color: #c7bfff;
+  color: var(--accent-text);
 }
 
 /* the trash icon only shows while hovering its row */
@@ -278,8 +335,68 @@ body {
 }
 
 .signout:hover {
-  color: #fca5a5;
-  background: rgba(248, 113, 113, 0.1);
+  color: var(--danger);
+  background: rgba(239, 68, 68, 0.08);
+}
+
+/* --- responsive: off-canvas sidebar behind a burger button on narrow screens --- */
+
+.burger {
+  display: none;
+  position: fixed;
+  top: 14px;
+  left: 14px;
+  z-index: 47;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text-dim);
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+}
+
+.burger:hover {
+  color: var(--accent-text);
+  border-color: var(--accent);
+}
+
+.nav-overlay {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .burger {
+    display: inline-flex;
+  }
+
+  .nav-overlay {
+    display: block;
+    z-index: 45;
+  }
+
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 46;
+    transform: translateX(-100%);
+    transition: transform 0.22s ease;
+    box-shadow: var(--shadow-md);
+  }
+
+  .sidebar.open {
+    transform: none;
+  }
+
+  /* clear the floating burger so page titles aren't hidden under it */
+  .content {
+    padding-top: 64px;
+  }
 }
 
 /* --- main area --- */
@@ -302,9 +419,9 @@ body {
 }
 
 .error-banner {
-  background: rgba(248, 113, 113, 0.1);
-  border: 1px solid rgba(248, 113, 113, 0.45);
-  color: #fca5a5;
+  background: rgba(239, 68, 68, 0.07);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: var(--bad-text);
   border-radius: 10px;
   padding: 10px 14px;
   margin-bottom: 16px;
@@ -384,7 +501,7 @@ tbody tr {
 }
 
 tbody tr:hover {
-  background: rgba(139, 124, 246, 0.04);
+  background: rgba(109, 93, 240, 0.04);
 }
 
 tr:last-child td {
@@ -392,7 +509,7 @@ tr:last-child td {
 }
 
 a.row-link {
-  color: #a8b6ff;
+  color: var(--link);
   text-decoration: none;
 }
 
@@ -427,8 +544,14 @@ a.row-link:hover {
 }
 
 .icon-btn:hover {
-  color: #fca5a5;
-  background: rgba(248, 113, 113, 0.12);
+  color: var(--danger);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+/* the theme switch is an icon-btn, but it isn't destructive — hover accent, not red */
+.icon-btn.theme-toggle:hover {
+  color: var(--accent-text);
+  background: rgba(109, 93, 240, 0.1);
 }
 
 /* --- badges --- */
@@ -445,18 +568,18 @@ a.row-link:hover {
 }
 
 .badge.ok {
-  color: #6ee7b7;
-  background: rgba(52, 211, 153, 0.12);
+  color: var(--ok-text);
+  background: rgba(16, 185, 129, 0.12);
 }
 
 .badge.bad {
-  color: #fca5a5;
-  background: rgba(248, 113, 113, 0.12);
+  color: var(--bad-text);
+  background: rgba(239, 68, 68, 0.1);
 }
 
 .badge.accent {
-  color: #b8adff;
-  background: rgba(139, 124, 246, 0.14);
+  color: var(--accent-text);
+  background: rgba(109, 93, 240, 0.12);
 }
 
 /* --- chat --- */
@@ -573,9 +696,9 @@ a.row-link:hover {
 }
 
 .msg.error {
-  background: rgba(248, 113, 113, 0.1);
-  border: 1px solid rgba(248, 113, 113, 0.45);
-  color: #fca5a5;
+  background: rgba(239, 68, 68, 0.07);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: var(--bad-text);
 }
 
 /* markdown inside assistant bubbles */
@@ -629,7 +752,7 @@ a.row-link:hover {
 }
 
 .md a {
-  color: #a8b6ff;
+  color: var(--link);
 }
 
 .md h1,
@@ -641,7 +764,25 @@ a.row-link:hover {
 }
 
 .md strong {
-  color: #fff;
+  color: var(--text);
+}
+
+/* blinking caret at the end of a reply that is still streaming in */
+.stream-cursor {
+  display: inline-block;
+  width: 8px;
+  height: 15px;
+  margin-left: 3px;
+  vertical-align: text-bottom;
+  background: var(--accent);
+  border-radius: 2px;
+  animation: cursor-blink 0.9s steps(2, start) infinite;
+}
+
+@keyframes cursor-blink {
+  to {
+    visibility: hidden;
+  }
 }
 
 /* typing indicator */
@@ -667,6 +808,13 @@ a.row-link:hover {
 
 .msg.typing span:nth-child(3) {
   animation-delay: 0.3s;
+}
+
+.msg.typing .stage {
+  font-style: normal;
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-left: 8px;
 }
 
 @keyframes typing-bounce {
@@ -737,7 +885,7 @@ a.row-link:hover {
 
 .suggestions button:hover {
   border-color: var(--accent);
-  background: rgba(139, 124, 246, 0.1);
+  background: rgba(109, 93, 240, 0.06);
   transform: translateY(-1px);
 }
 
@@ -758,13 +906,31 @@ a.row-link:hover {
   color: var(--text-dim);
   user-select: none;
   border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  list-style: none;
+}
+
+.trace summary::-webkit-details-marker {
+  display: none;
+}
+
+.trace summary::before {
+  content: '▸';
+  font-size: 10px;
+  transition: transform 0.15s ease;
+}
+
+.trace[open] summary::before {
+  transform: rotate(90deg);
 }
 
 .trace summary:hover {
-  color: #b8adff;
+  color: var(--accent-text);
 }
 
-/* clicking the summary must not leave the browser's white focus box behind */
+/* clicking the summary must not leave the browser's default focus box behind */
 .trace summary:focus {
   outline: none;
 }
@@ -776,20 +942,57 @@ a.row-link:hover {
 
 .trace-body {
   margin-top: 8px;
-  padding: 12px;
+  padding: 12px 14px;
   background: var(--bg-inset);
   border: 1px solid var(--border-soft);
   border-radius: 10px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 9px;
 }
 
-.trace-body code {
+/* one labeled line of the trace: ROUTING / AGENT / EVAL / RETRIES */
+.trace-row {
+  display: flex;
+  gap: 12px;
+}
+
+.trace-label {
+  flex-shrink: 0;
+  width: 52px;
+  padding-top: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-dim);
+}
+
+.trace-content {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  min-width: 0;
+  font-size: 12px;
+}
+
+/* full-width follow-up line (routing reason, eval feedback) */
+.trace-note {
+  flex-basis: 100%;
+  color: var(--text-dim);
+}
+
+.trace-body .tool-chip {
   background: var(--bg-raised);
-  padding: 1px 6px;
-  border-radius: 5px;
+  border: 1px solid var(--border-soft);
+  padding: 2px 9px;
+  border-radius: 999px;
   font-size: 11px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .feedback-row {
@@ -813,13 +1016,13 @@ a.row-link:hover {
 
 .feedback-row button:hover:not(:disabled) {
   border-color: var(--accent);
-  color: #b8adff;
+  color: var(--accent-text);
 }
 
 .feedback-row button.chosen {
   border-color: var(--accent);
-  color: #b8adff;
-  background: rgba(139, 124, 246, 0.12);
+  color: var(--accent-text);
+  background: rgba(109, 93, 240, 0.1);
 }
 
 .feedback-row button:disabled {
@@ -890,7 +1093,7 @@ select:focus {
 
 input::placeholder,
 textarea::placeholder {
-  color: #5d6579;
+  color: var(--placeholder);
 }
 
 button.primary {
@@ -938,42 +1141,10 @@ button.ghost {
 
 button.ghost:hover {
   border-color: var(--accent);
-  color: #b8adff;
+  color: var(--accent-text);
 }
 
-/* --- tabs (storefront) --- */
-
-.tabs {
-  display: flex;
-  gap: 6px;
-  margin-bottom: 16px;
-}
-
-.tabs button {
-  background: none;
-  border: 1px solid var(--border);
-  color: var(--text-dim);
-  border-radius: 999px;
-  padding: 7px 18px;
-  font-size: 13px;
-  font-family: inherit;
-  cursor: pointer;
-  transition:
-    border-color 0.15s ease,
-    color 0.15s ease,
-    background 0.15s ease;
-}
-
-.tabs button:hover {
-  color: var(--text);
-}
-
-.tabs button.active {
-  background: rgba(139, 124, 246, 0.12);
-  color: #b8adff;
-  border-color: var(--accent);
-  font-weight: 600;
-}
+/* --- storefront --- */
 
 .product-grid {
   display: grid;
@@ -1005,6 +1176,239 @@ button.ghost:hover {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  font-size: 13px;
+}
+
+.product-card .add-to-cart {
+  margin-top: 12px;
+  width: 100%;
+}
+
+.product-card .add-to-cart:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* page title row with actions on the right (e.g. the storefront's cart button) */
+.page-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.page-head .page-title {
+  margin: 0;
+}
+
+.cart-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cart-count {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--grad);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+/* --- cart drawer (slide-over panel on the storefront) --- */
+
+.drawer-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--overlay);
+  backdrop-filter: blur(2px);
+  z-index: 40;
+  animation: fade-in 0.2s ease both;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 420px;
+  max-width: 92vw;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-card);
+  border-left: 1px solid var(--border-soft);
+  box-shadow: var(--shadow-md);
+  z-index: 41;
+  animation: drawer-in 0.25s cubic-bezier(0.2, 0.8, 0.25, 1) both;
+}
+
+@keyframes drawer-in {
+  from {
+    transform: translateX(40px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+.drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.drawer-head h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.drawer-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px 20px;
+}
+
+.drawer-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--border-soft);
+}
+
+/* theme switch floating on the (sidebar-less) login page */
+.login-theme {
+  position: fixed;
+  top: 16px;
+  right: 20px;
+  z-index: 10;
+}
+
+/* quantity stepper on a cart line: [−] qty [+] */
+.qty-stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.qty-btn {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-raised);
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.qty-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+/* clickable order rows that expand into their line items */
+.order-row {
+  cursor: pointer;
+}
+
+.order-chevron {
+  display: inline-block;
+  margin-right: 7px;
+  font-size: 10px;
+  color: var(--text-dim);
+  transition: transform 0.15s ease;
+}
+
+.order-chevron.open {
+  transform: rotate(90deg);
+}
+
+.order-items-row td {
+  background: var(--bg-inset);
+  padding: 6px 10px 10px 27px;
+}
+
+.order-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12.5px;
+}
+
+.order-items li {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  max-width: 420px;
+}
+
+/* transient bottom-center confirmation ("added to cart") */
+.toast {
+  position: fixed;
+  bottom: 26px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 9px 18px;
+  font-size: 13px;
+  box-shadow: var(--shadow-md);
+  animation: toast-in 0.2s ease both;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+.success-banner {
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  color: var(--ok-text);
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin-top: 12px;
   font-size: 13px;
 }
 
@@ -1041,64 +1445,317 @@ button.ghost:hover {
 /* --- login --- */
 
 .login-page {
+  min-height: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 22px;
-  padding-top: 14vh;
+  justify-content: center;
+  gap: 26px;
+  padding: 6vh 20px;
+}
+
+.login-hero {
+  text-align: center;
 }
 
 .login-brand {
-  font-size: 40px;
+  font-size: 48px;
   font-weight: 800;
   letter-spacing: 0.5px;
+  line-height: 1.1;
   background: var(--grad);
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 8px 30px rgba(109, 93, 240, 0.35));
+}
+
+.login-tagline {
+  margin-top: 8px;
+  max-width: 360px;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--text-dim);
 }
 
 .login-card {
-  width: 380px;
+  width: 400px;
+  max-width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 26px;
-  border-radius: 16px;
-  box-shadow: var(--shadow-md);
+  gap: 14px;
+  padding: 26px 28px 22px;
+  border-radius: 18px;
+  border-color: var(--border);
+  box-shadow:
+    0 0 0 1px rgba(109, 93, 240, 0.08),
+    0 20px 60px rgba(23, 26, 40, 0.12);
 }
 
-.login-card h3 {
-  font-size: 16px;
-  color: var(--text);
-  text-transform: none;
-  letter-spacing: 0;
-  margin-bottom: 0;
+.login-tabs {
+  display: flex;
+  gap: 4px;
+  background: var(--bg-inset);
+  border: 1px solid var(--border-soft);
+  border-radius: 11px;
+  padding: 4px;
+  margin-bottom: 4px;
+}
+
+.login-tabs button {
+  flex: 1;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 0;
+  border-radius: 8px;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+.login-tabs button.active {
+  background: linear-gradient(135deg, rgba(109, 93, 240, 0.14), rgba(139, 124, 246, 0.08));
+  color: var(--accent-text);
+}
+
+.login-card .field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .login-card label {
-  font-size: 11.5px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  color: var(--text-dim);
+}
+
+.login-card input {
+  padding: 11px 13px;
+  font-size: 14px;
+  background: var(--bg-inset);
+}
+
+.login-error {
+  margin-bottom: 0;
+}
+
+.login-submit {
+  width: 100%;
+  padding: 11px 0;
+  font-size: 14.5px;
+  margin-top: 2px;
+}
+
+.login-demo {
+  border-top: 1px solid var(--border-soft);
+  padding-top: 14px;
+  margin-top: 2px;
+}
+
+.login-demo-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+  text-align: center;
+}
+
+.login-demo-row {
+  display: grid;
+  grid-template-columns: 78px 1fr;
+  column-gap: 10px;
+  row-gap: 1px;
+  align-items: center;
+  text-align: left;
+  width: 100%;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 12px;
+  margin-bottom: 6px;
+  font-family: inherit;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+
+.login-demo-row:hover {
+  border-color: var(--accent);
+  background: rgba(109, 93, 240, 0.06);
+}
+
+.login-demo-role {
+  grid-row: span 2;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--accent-text);
+}
+
+.login-demo-cred {
+  font-family: Consolas, 'Cascadia Mono', monospace;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.login-demo-hint {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.login-foot {
+  font-size: 12px;
+}
+
+/* --- storefront filters + product images --- */
+
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.filter-search {
+  flex: 1;
+  min-width: 200px;
+}
+
+.filter-price {
+  width: 92px;
+}
+
+.filter-stock {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-dim);
+  cursor: pointer;
+  user-select: none;
+}
+
+.filter-stock input {
+  accent-color: var(--accent);
+  width: 15px;
+  height: 15px;
+  padding: 0;
+}
+
+.filter-count {
+  margin-left: auto;
+  font-size: 12px;
+}
+
+.product-card {
+  overflow: hidden;
+}
+
+.product-img {
+  display: block;
+  width: calc(100% + 36px);
+  margin: -18px -18px 12px;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+}
+
+.product-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+/* --- products + users management pages --- */
+
+.product-thumb {
+  display: block;
+  width: 44px;
+  height: 33px;
+  object-fit: cover;
+  border-radius: 6px;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin: 10px 0 14px;
+}
+
+.form-grid .field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.form-grid .field > label {
+  font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.6px;
   color: var(--text-dim);
-  margin-bottom: -8px;
 }
 
-.login-card button.primary {
-  margin-top: 4px;
+.form-wide {
+  grid-column: 1 / -1;
 }
 
-.login-hint {
+.form-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.change-row {
+  border-top: 1px solid var(--border-soft);
+  padding: 10px 0 8px;
+}
+
+.change-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.change-head .muted {
   font-size: 12px;
-  margin: 6px 0 0;
-  line-height: 1.6;
 }
 
-.login-hint code {
-  background: var(--bg-inset);
-  border: 1px solid var(--border-soft);
-  padding: 1px 5px;
-  border-radius: 5px;
-  font-size: 11px;
+.change-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+}
+
+.change-actions button {
+  padding: 5px 14px;
+  font-size: 12px;
+}
+
+.change-payload {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin-top: 6px;
+  font-size: 12.5px;
+}
+
+.change-payload em {
+  font-style: normal;
+  color: var(--text-dim);
+  margin-right: 5px;
 }

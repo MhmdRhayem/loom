@@ -4,9 +4,13 @@
 
 // --- auth ---
 
+export type Role = 'client' | 'merchant' | 'admin'
+
 export interface User {
   email: string
   name: string
+  role: Role
+  shop: string | null // the shop a merchant owns
 }
 
 export interface LoginResponse {
@@ -32,6 +36,7 @@ export interface AgentRun {
   agent: string
   text: string | null
   tool_calls: ToolCall[]
+  tokens: number
 }
 
 export interface AgentEval {
@@ -112,6 +117,7 @@ export interface OverviewResponse {
   retry_rate: number | null
   total_memories: number
   dream_runs: number
+  total_tokens: number
 }
 
 export interface AgentTurnStats {
@@ -165,7 +171,6 @@ export interface MemoryCount {
 
 export interface DreamRunInfo {
   owner_id: string
-  sessions_consolidated: number
   memories_merged: number
   memories_pruned: number
   duration_ms: number
@@ -229,8 +234,19 @@ export interface Product {
   rating: number
   in_stock: boolean
   category: string
+  shop: string
   description: string
   deal: string | null
+  image_url: string | null
+}
+
+export interface ProductsResponse {
+  products: Product[]
+  // facets for the storefront filter bar
+  shops: string[]
+  categories: string[]
+  price_min: number
+  price_max: number
 }
 
 export interface Order {
@@ -242,11 +258,103 @@ export interface Order {
   estimated_delivery: string | null
   placed_on: string | null
   total: number
+  items: OrderLine[]
 }
 
-export interface Coupon {
-  code: string
-  discount_pct: number
+export interface CartLine {
+  id: string
+  name: string
+  qty: number
+  price: number
+}
+
+export interface CartResponse {
+  action: string
+  item_id: string
+  cart: CartLine[]
+  subtotal: number
+  stock_ok: boolean
+  error?: string
+}
+
+export interface CheckoutResponse {
+  placed: boolean
+  order_id?: string
+  total?: number
+  estimated_delivery?: string
+  error?: string
+  suggestion?: string
+  retry_with_new_card?: boolean
+}
+
+// --- management (merchant + admin, demo manage_routes.py) ---
+
+export interface ShopStats {
+  products: number
+  in_stock: number
+  avg_rating: number | null
+  avg_price: number | null
+}
+
+export interface OrderLine {
+  product_id: string
+  name: string
+  shop?: string // present in the admin view only
+  qty: number
+  unit_price: number
+}
+
+export interface ShopOrder {
+  order_id: string
+  placed_on: string
+  status: string
+  email?: string // admin view only — merchants never see the customer
+  order_total?: number
+  items: OrderLine[]
+  items_total: number
+}
+
+export interface SalesDay {
+  day: string
+  revenue: number
+  units: number
+}
+
+export interface TopProduct {
+  product_id: string
+  name: string
+  units: number
+  revenue: number
+}
+
+export interface StatusCount {
+  status: string
+  orders: number
+}
+
+export interface ShopSales {
+  revenue: number
+  units: number
+  orders: number
+  avg_order_value: number | null
+  by_day: SalesDay[]
+  top_products: TopProduct[]
+  status_counts: StatusCount[]
+}
+
+export interface ProductChange {
+  change_id: string
+  shop: string
+  action: 'create' | 'update' | 'delete'
   product_id: string | null
-  min_subtotal: number | null
+  payload: Record<string, unknown>
+  status: 'pending' | 'approved' | 'rejected'
+  created_on: string
+}
+
+export interface AccountRow {
+  email: string
+  name: string
+  role: Role
+  shop: string | null
 }

@@ -22,18 +22,18 @@ import type {
 } from '../types'
 
 const CHART = {
-  grid: '#2a3140',
-  text: '#8b93a7',
-  accent: '#7aa2f7',
-  ok: '#4ade80',
-  warn: '#fbbf24',
+  grid: '#e4e7f0',
+  text: '#667089',
+  accent: '#6d5df0',
+  ok: '#10b981',
+  warn: '#f59e0b',
 }
 
 const TOOLTIP_STYLE = {
-  backgroundColor: '#1b202b',
-  border: '1px solid #2a3140',
+  backgroundColor: '#ffffff',
+  border: '1px solid #d7dbe8',
   borderRadius: 8,
-  color: '#e6e9ef',
+  color: '#1c2130',
   fontSize: 12,
 }
 
@@ -97,6 +97,14 @@ export default function Dashboard() {
         <Stat label="retry rate" value={fmtPct(overview.retry_rate)} />
         <Stat label="memories" value={overview.total_memories} />
         <Stat label="dream runs" value={overview.dream_runs} />
+        <Stat
+          label="total tokens"
+          value={
+            overview.total_tokens >= 1000
+              ? `${(overview.total_tokens / 1000).toFixed(1)}k`
+              : overview.total_tokens
+          }
+        />
       </div>
 
       <div className="grid charts">
@@ -215,7 +223,6 @@ export default function Dashboard() {
             <thead>
               <tr>
                 <th>owner</th>
-                <th>sessions</th>
                 <th>merged</th>
                 <th>pruned</th>
                 <th>duration</th>
@@ -226,7 +233,6 @@ export default function Dashboard() {
               {(memory?.dream_runs ?? []).map((run, i) => (
                 <tr key={i}>
                   <td>{run.owner_id}</td>
-                  <td>{run.sessions_consolidated}</td>
                   <td>{run.memories_merged}</td>
                   <td>{run.memories_pruned}</td>
                   <td>{fmtMs(run.duration_ms)}</td>
@@ -235,7 +241,7 @@ export default function Dashboard() {
               ))}
               {(memory?.dream_runs ?? []).length === 0 && (
                 <tr>
-                  <td colSpan={6} className="muted">
+                  <td colSpan={5} className="muted">
                     no dream runs yet
                   </td>
                 </tr>

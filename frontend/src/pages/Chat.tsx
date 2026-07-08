@@ -3,9 +3,29 @@ import { useSearchParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
-import { api, fmtScore } from '../api'
+import { api, fmtPct, fmtScore, type StageEvent } from '../api'
 import { useAuth } from '../auth'
 import type { AgentInfo, ChatResponse } from '../types'
+
+/** Human label for what the pipeline is doing next, given the stage that just finished. */
+const stageLabel = (evt: StageEvent): string => {
+  switch (evt.node) {
+    case 'load_memory':
+      return 'choosing the right specialist…'
+    case 'route':
+      return evt.agents && evt.agents.length > 0
+        ? `asking ${evt.agents.join(' + ')}…`
+        : 'asking a specialist…'
+    case 'execute_agents':
+      return 'reviewing the answer…'
+    case 'revise':
+      return 'improving the answer…'
+    case 'evaluate':
+      return 'wrapping up…'
+    default:
+      return 'thinking…'
+  }
+}
 
 interface Message {
   role: 'user' | 'assistant' | 'error'
@@ -22,7 +42,20 @@ const SUGGESTIONS = [
   'I want to return my leather boots',
 ]
 
+// Extra chips for merchants: their shop_manager agent proposes catalog changes.
+const MERCHANT_SUGGESTIONS = [
+  'Add a red summer dress for $45 to my shop',
+  'Which of my products are out of stock?',
+]
+
 const fmtTime = (d: Date) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+
+/** Tool-call args as a compact one-line preview; the full JSON lives in the tooltip. */
+const fmtArgs = (args?: Record<string, unknown>) => {
+  if (!args || Object.keys(args).length === 0) return ''
+  const s = JSON.stringify(args).slice(1, -1) // drop the outer braces
+  return s.length > 44 ? `${s.slice(0, 41)}…` : s
+}
 
 /** The routing/eval trace behind one assistant reply, collapsed by default. */
 function Trace({ meta }: { meta: ChatResponse }) {
@@ -30,53 +63,78 @@ function Trace({ meta }: { meta: ChatResponse }) {
     <details className="trace">
       <summary>how this answer was produced</summary>
       <div className="trace-body">
-        <div>
-          Routed to <code>{meta.current_agents.join(', ') || '—'}</code>
-          {meta.query_category && (
-            <>
-              {' '}
-              as <code>{meta.query_category}</code>
-            </>
-          )}
-          {meta.routing_confidence != null && <> (confidence {fmtScore(meta.routing_confidence)})</>}
-        </div>
-        {meta.routing_reason && <div className="muted">{meta.routing_reason}</div>}
-        {meta.agent_runs.map((run) => (
-          <div key={run.agent}>
-            <code>{run.agent}</code>
-            {run.tool_calls.length > 0 ? (
-              <>
-                {' '}
-                called{' '}
-                {run.tool_calls.map((tc, i) => (
-                  <code key={i} title={JSON.stringify(tc.args ?? {}, null, 2)}>
-                    {String(tc.name ?? 'tool')}({tc.args ? JSON.stringify(tc.args) : ''})
-                  </code>
-                ))}
-              </>
-            ) : (
-              <span className="muted"> answered directly (no tools)</span>
+        <div className="trace-row">
+          <span className="trace-label">routing</span>
+          <span className="trace-content">
+            {meta.current_agents.map((a) => (
+              <span key={a} className="badge accent">
+                {a}
+              </span>
+            ))}
+            {meta.query_category && <span className="badge">{meta.query_category}</span>}
+            {meta.routing_confidence != null && (
+              <span className="badge">{fmtPct(meta.routing_confidence)} confidence</span>
             )}
+            {meta.routing_reason && <span className="trace-note">{meta.routing_reason}</span>}
+          </span>
+        </div>
+        {meta.agent_runs.map((run) => (
+          <div key={run.agent} className="trace-row">
+            <span className="trace-label">agent</span>
+            <span className="trace-content">
+              <span className="badge accent">{run.agent}</span>
+              {run.tokens > 0 && <span className="muted">{run.tokens} tokens</span>}
+              {run.tool_calls.length === 0 && (
+                <span className="muted">answered directly — no tools</span>
+              )}
+              {run.tool_calls.map((tc, i) => (
+                <code key={i} className="tool-chip" title={JSON.stringify(tc.args ?? {}, null, 2)}>
+                  {String(tc.name ?? 'tool')}({fmtArgs(tc.args)})
+                </code>
+              ))}
+            </span>
           </div>
         ))}
         {meta.eval && (
-          <div>
-            Eval <code>{meta.eval.stage ?? '?'}</code> score {fmtScore(meta.eval.score)}{' '}
-            {meta.eval.pass != null && (
-              <span className={`badge ${meta.eval.pass ? 'ok' : 'bad'}`}>
-                {meta.eval.pass ? 'pass' : 'fail'}
-              </span>
-            )}
-            {meta.eval.feedback && <div className="muted">“{meta.eval.feedback}”</div>}
+          <div className="trace-row">
+            <span className="trace-label">eval</span>
+            <span className="trace-content">
+              {meta.eval.pass != null && (
+                <span className={`badge ${meta.eval.pass ? 'ok' : 'bad'}`}>
+                  {meta.eval.pass ? 'pass' : 'fail'}
+                </span>
+              )}
+              {meta.eval.score != null && (
+                <span className="badge">score {fmtScore(meta.eval.score)}</span>
+              )}
+              {meta.eval.stage && <span className="muted">{meta.eval.stage}</span>}
+              {meta.eval.feedback && <span className="trace-note">“{meta.eval.feedback}”</span>}
+            </span>
           </div>
         )}
-        {meta.retry_count > 0 && <div className="muted">retries: {meta.retry_count}</div>}
+        {meta.retry_count > 0 && (
+          <div className="trace-row">
+            <span className="trace-label">retries</span>
+            <span className="trace-content">
+              <span className="badge bad">×{meta.retry_count}</span>
+            </span>
+          </div>
+        )}
       </div>
     </details>
   )
 }
 
-function Welcome({ agents, onPick }: { agents: AgentInfo[]; onPick: (s: string) => void }) {
+function Welcome({
+  agents,
+  merchant,
+  onPick,
+}: {
+  agents: AgentInfo[]
+  merchant: boolean
+  onPick: (s: string) => void
+}) {
+  const suggestions = merchant ? [...SUGGESTIONS, ...MERCHANT_SUGGESTIONS] : SUGGESTIONS
   return (
     <div className="card welcome">
       <h3>Shopping assistant</h3>
@@ -94,7 +152,7 @@ function Welcome({ agents, onPick }: { agents: AgentInfo[]; onPick: (s: string) 
         </div>
       )}
       <div className="suggestions">
-        {SUGGESTIONS.map((s) => (
+        {suggestions.map((s) => (
           <button key={s} onClick={() => onPick(s)}>
             {s}
           </button>
@@ -111,9 +169,13 @@ export default function Chat() {
   const [input, setInput] = useState('')
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
+  const [stage, setStage] = useState<string | null>(null)
+  // The reply streaming in, token by token; the final response replaces it.
+  const [draft, setDraft] = useState('')
   const [agents, setAgents] = useState<AgentInfo[]>([])
   const logRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const abortRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
     api
@@ -164,7 +226,7 @@ export default function Chat() {
 
   useEffect(() => {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight, behavior: 'smooth' })
-  }, [messages, sending])
+  }, [messages, sending, draft])
 
   const send = async (text?: string) => {
     const message = (text ?? input).trim()
@@ -172,9 +234,21 @@ export default function Chat() {
     setInput('')
     setSending(true)
     setMessages((m) => [...m, { role: 'user', text: message, at: new Date() }])
+    abortRef.current = new AbortController()
     try {
       // The backend takes the owner from the Bearer token, so no owner_id is sent.
-      const res = await api.chat({ message, conversation_id: conversationId })
+      // Streamed: stage events narrate the pipeline, token events type the answer
+      // out live, and the final payload replaces the draft (it is authoritative —
+      // e.g. after a critic-forced revision, signalled by a `revise` stage).
+      const res = await api.chatStream(
+        { message, conversation_id: conversationId },
+        (evt) => {
+          setStage(stageLabel(evt))
+          if (evt.node === 'revise') setDraft('')
+        },
+        (token) => setDraft((d) => d + token),
+        abortRef.current.signal,
+      )
       setConversationId(res.conversation_id)
       // Stamp the conversation into the URL so a refresh resumes it and the
       // sidebar's recent list picks it up. loadedRef stops the resume effect
@@ -186,12 +260,21 @@ export default function Chat() {
         { role: 'assistant', text: res.response ?? '(no response)', at: new Date(), meta: res },
       ])
     } catch (err) {
-      setMessages((m) => [...m, { role: 'error', text: String(err), at: new Date() }])
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        setMessages((m) => [...m, { role: 'error', text: 'Response stopped.', at: new Date() }])
+      } else {
+        setMessages((m) => [...m, { role: 'error', text: String(err), at: new Date() }])
+      }
     } finally {
+      abortRef.current = null
       setSending(false)
+      setStage(null)
+      setDraft('')
       inputRef.current?.focus()
     }
   }
+
+  const stop = () => abortRef.current?.abort()
 
   const rate = async (index: number, rating: 'up' | 'down') => {
     if (!conversationId) return
@@ -229,7 +312,9 @@ export default function Chat() {
       </div>
 
       <div className="chat-log" ref={logRef}>
-        {messages.length === 0 && <Welcome agents={agents} onPick={(s) => send(s)} />}
+        {messages.length === 0 && (
+          <Welcome agents={agents} merchant={user?.role === 'merchant'} onPick={(s) => send(s)} />
+        )}
         {messages.map((msg, i) => (
           <div key={i} className={`msg-row ${msg.role}`}>
             <div className="msg-sender">
@@ -290,13 +375,25 @@ export default function Chat() {
             </div>
           </div>
         ))}
-        {sending && (
+        {sending && draft && (
+          <div className="msg-row assistant">
+            <div className="msg-sender">assistant</div>
+            <div className="msg assistant">
+              <div className="md">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{draft}</ReactMarkdown>
+              </div>
+              <span className="stream-cursor" />
+            </div>
+          </div>
+        )}
+        {sending && !draft && (
           <div className="msg-row assistant">
             <div className="msg-sender">assistant</div>
             <div className="msg assistant typing">
               <span />
               <span />
               <span />
+              <em className="stage">{stage ?? 'thinking…'}</em>
             </div>
           </div>
         )}
@@ -316,9 +413,15 @@ export default function Chat() {
           }}
           disabled={sending}
         />
-        <button className="primary" onClick={() => send()} disabled={sending || !input.trim()}>
-          {sending ? '…' : 'Send'}
-        </button>
+        {sending ? (
+          <button className="ghost" onClick={stop} title="Stop the response">
+            Stop
+          </button>
+        ) : (
+          <button className="primary" onClick={() => send()} disabled={!input.trim()}>
+            Send
+          </button>
+        )}
       </div>
     </div>
   )

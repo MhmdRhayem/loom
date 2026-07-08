@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { Suspense, lazy, useEffect, useState } from 'react'
 import { Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 
 import { api } from './api'
@@ -6,16 +6,63 @@ import { RequireAuth, useAuth } from './auth'
 import Chat from './pages/Chat'
 import ConversationDetail from './pages/ConversationDetail'
 import Conversations from './pages/Conversations'
-import Dashboard from './pages/Dashboard'
 import Login from './pages/Login'
+import Products from './pages/Products'
 import Storefront from './pages/Storefront'
-import type { ConversationSummary } from './types'
+import Users from './pages/Users'
+import type { ConversationSummary, Role } from './types'
 
-const NAV = [
-  { to: '/chat', label: 'Chat' },
-  { to: '/dashboard', label: 'Dashboard' },
-  { to: '/conversations', label: 'Conversations' },
-  { to: '/storefront', label: 'Storefront' },
+// The dashboards pull in the whole charting library — split them out of the main
+// bundle so the chat/storefront pages don't pay for it.
+const Dashboard = lazy(() => import('./pages/Dashboard'))
+const ShopDashboard = lazy(() => import('./pages/ShopDashboard'))
+
+// Sidebar links per role: clients shop and chat; merchants also manage their shop's
+// products and see its sales dashboard; admins get the analytics dashboard and users.
+// Sections with a heading render their items as an indented sublist; the storefront
+// and shop-management views are routes of their own rather than in-page tabs.
+interface NavItem {
+  to: string
+  label: string
+  roles?: Role[]
+  end?: boolean // exact-path matching, so parent paths don't stay highlighted
+}
+
+interface NavSection {
+  heading?: string
+  roles?: Role[]
+  items: NavItem[]
+}
+
+const NAV: NavSection[] = [
+  {
+    items: [
+      { to: '/chat', label: 'Chat' },
+      { to: '/conversations', label: 'Conversations' },
+    ],
+  },
+  {
+    heading: 'Storefront',
+    // The cart is a drawer on the storefront itself (its button lives there), not a page.
+    items: [
+      { to: '/storefront', label: 'Products', end: true },
+      { to: '/storefront/orders', label: 'Orders' },
+    ],
+  },
+  {
+    heading: 'Manage',
+    roles: ['merchant', 'admin'],
+    items: [
+      { to: '/products', label: 'Products', end: true },
+      { to: '/products/orders', label: 'Orders' },
+    ],
+  },
+  {
+    items: [
+      { to: '/dashboard', label: 'Dashboard', roles: ['merchant', 'admin'] },
+      { to: '/users', label: 'Users', roles: ['admin'] },
+    ],
+  },
 ]
 
 const initials = (name: string) =>
@@ -26,6 +73,64 @@ const initials = (name: string) =>
     .slice(0, 2)
     .join('')
     .toUpperCase()
+
+/** Light/dark switch: flips the html[data-theme] attribute and remembers the choice. */
+export function ThemeToggle() {
+  const [theme, setTheme] = useState(document.documentElement.dataset.theme ?? 'light')
+
+  const toggle = () => {
+    const next = theme === 'dark' ? 'light' : 'dark'
+    document.documentElement.dataset.theme = next
+    localStorage.setItem('loom.theme', next)
+    setTheme(next)
+  }
+
+  return (
+    <button
+      className="icon-btn theme-toggle"
+      onClick={toggle}
+      title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+    >
+      {theme === 'dark' ? (
+        // sun
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <circle cx="12" cy="12" r="5" />
+          <line x1="12" y1="1" x2="12" y2="3" />
+          <line x1="12" y1="21" x2="12" y2="23" />
+          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+          <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+          <line x1="1" y1="12" x2="3" y2="12" />
+          <line x1="21" y1="12" x2="23" y2="12" />
+          <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+          <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+        </svg>
+      ) : (
+        // moon
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+        </svg>
+      )}
+    </button>
+  )
+}
 
 export function TrashIcon({ size = 14 }: { size?: number }) {
   return (
@@ -50,10 +155,18 @@ export function TrashIcon({ size = 14 }: { size?: number }) {
 export default function App() {
   const [health, setHealth] = useState<'ok' | 'degraded' | 'down'>('down')
   const [recent, setRecent] = useState<ConversationSummary[]>([])
+  // Off-canvas sidebar state for narrow screens (the burger button toggles it;
+  // on desktop widths the CSS ignores it and the sidebar is always visible).
+  const [navOpen, setNavOpen] = useState(false)
   const { user, ready, logout } = useAuth()
   const location = useLocation()
   const navigate = useNavigate()
   const activeChat = new URLSearchParams(location.search).get('c')
+
+  // Navigating anywhere closes the mobile sidebar.
+  useEffect(() => {
+    setNavOpen(false)
+  }, [location])
 
   // Keep the sidebar's recent-chats list fresh: refetch on sign-in and on every
   // navigation (sending a first message updates the URL to ?c=<id>, landing here too).
@@ -101,17 +214,57 @@ export default function App() {
   return (
     <div className="app">
       {user && (
-        <aside className="sidebar">
+        <button
+          className="burger"
+          title={navOpen ? 'Hide the menu' : 'Show the menu'}
+          onClick={() => setNavOpen((o) => !o)}
+        >
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+          >
+            <line x1="3" y1="6" x2="21" y2="6" />
+            <line x1="3" y1="12" x2="21" y2="12" />
+            <line x1="3" y1="18" x2="21" y2="18" />
+          </svg>
+        </button>
+      )}
+      {user && navOpen && <div className="drawer-overlay nav-overlay" onClick={() => setNavOpen(false)} />}
+      {user && (
+        <aside className={`sidebar ${navOpen ? 'open' : ''}`}>
           <div className="brand">
             Loom
             <span className={`health-dot ${health}`} title={`API: ${health}`} />
           </div>
           <nav>
-            {NAV.map(({ to, label }) => (
-              <NavLink key={to} to={to} className={({ isActive }) => (isActive ? 'active' : '')}>
-                {label}
-              </NavLink>
-            ))}
+            {NAV.filter(({ roles }) => !roles || roles.includes(user.role)).map((section, i) => {
+              const items = section.items.filter(
+                ({ roles }) => !roles || roles.includes(user.role),
+              )
+              if (items.length === 0) return null
+              return (
+                <div key={section.heading ?? i} className="nav-section">
+                  {section.heading && <div className="nav-heading">{section.heading}</div>}
+                  {items.map(({ to, label, end }) => (
+                    <NavLink
+                      key={to}
+                      to={to}
+                      end={end}
+                      className={({ isActive }) =>
+                        `${section.heading ? 'sub' : ''} ${isActive ? 'active' : ''}`.trim()
+                      }
+                    >
+                      {label}
+                    </NavLink>
+                  ))}
+                </div>
+              )
+            })}
           </nav>
           {recent.length > 0 && (
             <div className="recent">
@@ -138,6 +291,8 @@ export default function App() {
             <div className="sidebar-user" title={user.email}>
               <span className="avatar">{initials(user.name)}</span>
               <span className="user-name">{user.name}</span>
+              {user.role !== 'client' && <span className="badge accent">{user.role}</span>}
+              <ThemeToggle />
               <button className="signout" onClick={logout} title="Sign out">
                 <svg
                   width="16"
@@ -160,7 +315,8 @@ export default function App() {
         </aside>
       )}
       <main className="content">
-        <Routes>
+        <Suspense fallback={<p className="muted">loading…</p>}>
+          <Routes>
           <Route path="/" element={<Navigate to="/chat" replace />} />
           <Route path="/login" element={<Login />} />
           <Route
@@ -171,7 +327,38 @@ export default function App() {
               </RequireAuth>
             }
           />
-          <Route path="/dashboard" element={<Dashboard />} />
+          <Route
+            path="/dashboard"
+            element={
+              <RequireAuth roles={['merchant', 'admin']}>
+                {user?.role === 'admin' ? <Dashboard /> : <ShopDashboard />}
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/products"
+            element={
+              <RequireAuth roles={['merchant', 'admin']}>
+                <Products tab="catalog" />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/products/orders"
+            element={
+              <RequireAuth roles={['merchant', 'admin']}>
+                <Products tab="orders" />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/users"
+            element={
+              <RequireAuth roles={['admin']}>
+                <Users />
+              </RequireAuth>
+            }
+          />
           <Route
             path="/conversations"
             element={
@@ -188,8 +375,12 @@ export default function App() {
               </RequireAuth>
             }
           />
-          <Route path="/storefront" element={<Storefront />} />
-        </Routes>
+          <Route path="/storefront" element={<Storefront tab="products" />} />
+          {/* The cart page became a drawer on the storefront — keep old links working. */}
+          <Route path="/storefront/cart" element={<Navigate to="/storefront" replace />} />
+          <Route path="/storefront/orders" element={<Storefront tab="orders" />} />
+          </Routes>
+        </Suspense>
       </main>
     </div>
   )
