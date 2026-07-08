@@ -1,0 +1,39 @@
+# Agent definition — Shop Manager (shopping-assistant demo).
+# MERCHANT-ONLY: hidden from clients/admins by the app's agent-visibility hook
+# (auth.resolve_agent_visibility), so it never appears in their router menu, /agents
+# roster, or ask_<peer> delegation tools. Its tools never write the catalog directly:
+# every proposal lands in the pending-changes queue for the merchant to approve or
+# reject on the Products page.
+# Provider-neutral tier names (fast | standard | deep); resolved to the active provider in config.py.
+
+name: shop_manager
+description: >-
+  Shop management for the signed-in merchant: review their own shop's catalog and
+  propose product changes — add a new product, update price/details/stock, or remove
+  a product. Every proposal is queued for the merchant's approval and never applied
+  directly. Does not handle shopping, carts, checkout, placed orders, sizing advice,
+  or product search for buying.
+
+capabilities:
+  - product_management
+  - catalog_editing
+  - change_proposals
+
+tools:
+  - list_shop_products
+  - propose_product_create
+  - propose_product_update
+  - propose_product_delete
+  - list_pending_changes
+
+model: standard
+max_tokens: 1024
+
+eval_rubric:
+  - accuracy
+  - completeness
+  - clearly_states_change_is_pending_approval
+judge_sample_rate: 1.0
+
+fallback_agent: support_concierge
+memory_scope: owner

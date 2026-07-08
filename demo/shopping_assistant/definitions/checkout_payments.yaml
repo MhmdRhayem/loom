@@ -1,8 +1,10 @@
 # Agent definition — Checkout & Payments (shopping-assistant demo). NEW.
 # Owns the "can I complete this purchase" moment: stock/availability, cart and
 # checkout failures, and payment/promo/billing. The SINGLE deep-tier agent (hardest
-# reasoning, highest stakes). Tool is cart_api (the in-flight cart, pre-purchase) —
-# deliberately NOT order_api — to stay crisp against order_tracking (cart != order).
+# reasoning, highest stakes). Tools are cart_api + payment_api (the in-flight
+# purchase) and price_api (so promo_apply questions can check a coupon's discount
+# and minimum) — deliberately NOT order_api, to stay crisp against order_tracking
+# (cart != order).
 
 name: checkout_payments
 description: >-
@@ -22,6 +24,7 @@ capabilities:
 tools:
   - cart_api
   - payment_api
+  - price_api
 
 model: deep
 max_tokens: 1280

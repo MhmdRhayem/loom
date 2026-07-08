@@ -30,6 +30,17 @@ services:
       timeout: 3s
       retries: 5
 
+  qdrant:
+    # Vector database for the demo's semantic retrieval (see VECTOR_DB_CHOICE.md).
+    image: qdrant/qdrant:v1.18.2
+    container_name: maf-qdrant
+    ports:
+      # REST API (the Python client's default transport).
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
 volumes:
   postgres_data:
   redis_data:
+  qdrant_data:

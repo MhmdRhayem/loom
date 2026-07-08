@@ -5,7 +5,8 @@ from pathlib import Path
 from multi_agent_framework.agents.registry import AgentRegistry
 from multi_agent_framework.api.main import create_app
 
-from .auth import auth_router, resolve_identity
+from .auth import auth_router, require_admin, resolve_agent_visibility, resolve_identity
+from .manage_routes import manage_router
 from .shop_routes import shop_router
 from .tools import get_tools
 
@@ -18,13 +19,22 @@ FALLBACK_AGENT = "support_concierge"
 
 registry = AgentRegistry.from_directory(DEFINITIONS_DIR)
 # The identity resolver makes chat + conversation reads require a login and scopes
-# them (and the customer-record tools) to the signed-in account.
+# them (and the customer-record tools) to the signed-in account. Agent visibility
+# hides the merchant-only shop_manager from everyone else, and the analytics guard
+# makes the aggregate /analytics endpoints (the dashboard) admin-only.
 app = create_app(
-    registry, get_tools, fallback_agent=FALLBACK_AGENT, identity_resolver=resolve_identity
+    registry,
+    get_tools,
+    fallback_agent=FALLBACK_AGENT,
+    identity_resolver=resolve_identity,
+    agent_visibility=resolve_agent_visibility,
+    analytics_guard=require_admin,
 )
 
-# The auth + storefront endpoints (/auth/*, /shop/*) are demo-specific, so they're
-# mounted here rather than in the framework. CORS is applied inside create_app and
-# wraps the whole app, so routers added afterward are covered too.
+# The auth + storefront + management endpoints (/auth/*, /shop/*, /manage/*) are
+# demo-specific, so they're mounted here rather than in the framework. CORS is
+# applied inside create_app and wraps the whole app, so routers added afterward
+# are covered too.
 app.include_router(auth_router)
 app.include_router(shop_router)
+app.include_router(manage_router)

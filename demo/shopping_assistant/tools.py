@@ -3,32 +3,22 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any, Callable
 
-from . import db
+from . import db, retrieval
 
 # --- catalog_advisor ---------------------------------------------------------
 
 
 def product_db(query: str) -> dict[str, Any]:
-    """Search the product catalog. Returns matching products with id, name, price, rating, stock."""
-    return db.search_products(query)
+    """Search the catalog across all of the company's shops (Atelier, Everyday, Steps & Co).
+    Understands descriptive queries ("something elegant for a garden party"), not just
+    keywords; returns id, name, price, rating, stock, and shop per product."""
+    # Semantic retrieval when the catalog is indexed; keyword ranking otherwise.
+    return retrieval.search_products(query) or db.search_products(query)
 
 
 def price_api(product_id: str) -> dict[str, Any]:
     """Look up the current price, active deal, and best coupon for a product id."""
     return db.get_price(product_id)
-
-
-# --- checkout_payments -------------------------------------------------------
-
-
-def cart_api(action: str = "view", item_id: str = "") -> dict[str, Any]:
-    """Inspect or modify the in-flight cart (action: view | add | remove) and check stock."""
-    return db.cart_ops(action, item_id)
-
-
-def payment_api(cart_id: str = "current") -> dict[str, Any]:
-    """Check payment/billing status for a cart and diagnose a checkout failure."""
-    return db.get_payment_status(cart_id)
 
 
 # --- fit_stylist -------------------------------------------------------------
@@ -49,13 +39,10 @@ def style_engine(query: str) -> dict[str, Any]:
 
 
 def faq_kb(query: str) -> dict[str, Any]:
-    """Search the policy/FAQ knowledge base and return the best-matching answer."""
-    return db.search_faq(query)
-
-
-def ticket_api(summary: str) -> dict[str, Any]:
-    """Open a support ticket and escalate to a human agent with context."""
-    return db.open_ticket(summary)
+    """Search the policy/FAQ knowledge base by meaning and return the best-matching
+    answer with its policy source (plus related entries when they exist)."""
+    # Semantic retrieval when the corpus is indexed; keyword matching otherwise.
+    return retrieval.search_faq(query) or db.search_faq(query)
 
 
 # --- identity-bound tools (order_tracking, returns_refunds, account_assistant) --
@@ -84,18 +71,135 @@ def _user_tools(email: str | None) -> dict[str, Callable[..., Any]]:
             return {"error": "No customer is signed in, so returns cannot be started."}
         return db.start_return(order_id, email)
 
-    def account_api(action: str) -> dict[str, Any]:
-        """Account help for the signed-in customer (action: profile | reset_password | update_address)."""
+    def account_api(action: str, new_address: str = "") -> dict[str, Any]:
+        """Account help for the signed-in customer (action: profile | reset_password |
+        update_address). For update_address, pass the full new address in new_address."""
         if not email:
             return {"error": "No customer is signed in, so there is no account to act on."}
-        return db.account_action(action, email)
+        return db.account_action(action, email, new_address)
+
+    def cart_api(action: str = "view", item_id: str = "") -> dict[str, Any]:
+        """Inspect or modify the customer's own cart and check stock (action: view | add |
+        decrement | remove — add/decrement change the quantity by one, remove drops the line)."""
+        if not email:
+            return {"error": "No customer is signed in, so there is no cart to act on."}
+        return db.cart_ops(action, item_id, email)
+
+    def payment_api() -> dict[str, Any]:
+        """Check payment/billing status for the customer's own cart and diagnose failures."""
+        if not email:
+            return {"error": "No customer is signed in, so there is no payment to check."}
+        return db.get_payment_status(email)
+
+    def ticket_api(summary: str) -> dict[str, Any]:
+        """Open a support ticket for the signed-in customer and escalate to a human agent."""
+        if not email:
+            return {"error": "No customer is signed in, so a ticket cannot be opened."}
+        return db.open_ticket(summary, email)
 
     return {
         "list_my_orders": list_my_orders,
         "order_api": order_api,
         "returns_api": returns_api,
         "account_api": account_api,
+        "cart_api": cart_api,
+        "payment_api": payment_api,
+        "ticket_api": ticket_api,
     }
+
+
+# --- merchant tools (shop_manager) --------------------------------------------
+#
+# Catalog management for the signed-in merchant. The owned shop is resolved fresh
+# from the DB at bind time (never taken from the model), and nothing here writes
+# the catalog directly: every propose_* tool queues a pending product_changes row
+# that the merchant must approve or reject on the Products page.
+
+
+def _merchant_tools(email: str | None) -> dict[str, Callable[..., Any]]:
+    account = db.get_account(email) if email else None
+    shop = account.shop if account is not None and account.role == "merchant" else None
+    denied = {"error": "Only a signed-in merchant can manage a shop."}
+
+    def list_shop_products() -> dict[str, Any]:
+        """List every product in the merchant's own shop: id, name, price, stock, rating, deal."""
+        if not shop:
+            return denied
+        return {"shop": shop, "products": db.list_products(shop=shop)}
+
+    def propose_product_create(
+        name: str, price: float, category: str, description: str = "", deal: str = ""
+    ) -> dict[str, Any]:
+        """Propose adding a new product to the merchant's shop. The change is queued as
+        PENDING and applied only after the merchant approves it on the Products page —
+        always tell the merchant that."""
+        if not shop:
+            return denied
+        payload = {
+            "name": name,
+            "price": price,
+            "category": category,
+            "description": description,
+            "deal": deal or None,
+            "in_stock": True,
+        }
+        return db.create_product_change(shop, "create", None, payload)
+
+    def propose_product_update(
+        product_id: str,
+        name: str | None = None,
+        price: float | None = None,
+        category: str | None = None,
+        description: str | None = None,
+        in_stock: bool | None = None,
+        deal: str | None = None,
+    ) -> dict[str, Any]:
+        """Propose changing one of the merchant's own products; pass only the fields to
+        change. Queued as PENDING until the merchant approves it on the Products page."""
+        if not shop:
+            return denied
+        fields = {
+            "name": name,
+            "price": price,
+            "category": category,
+            "description": description,
+            "in_stock": in_stock,
+            "deal": deal,
+        }
+        payload = {k: v for k, v in fields.items() if v is not None}
+        if not payload:
+            return {"error": "Pass at least one field to change."}
+        return db.create_product_change(shop, "update", product_id, payload)
+
+    def propose_product_delete(product_id: str) -> dict[str, Any]:
+        """Propose removing one of the merchant's own products from the catalog.
+        Queued as PENDING until the merchant approves it on the Products page."""
+        if not shop:
+            return denied
+        return db.create_product_change(shop, "delete", product_id, {})
+
+    def list_pending_changes() -> dict[str, Any]:
+        """The merchant's queued product changes still awaiting approval or rejection."""
+        if not shop:
+            return denied
+        return {"shop": shop, "pending": db.list_product_changes(shop, "pending")}
+
+    return {
+        "list_shop_products": list_shop_products,
+        "propose_product_create": propose_product_create,
+        "propose_product_update": propose_product_update,
+        "propose_product_delete": propose_product_delete,
+        "list_pending_changes": list_pending_changes,
+    }
+
+
+_MERCHANT_TOOL_NAMES = {
+    "list_shop_products",
+    "propose_product_create",
+    "propose_product_update",
+    "propose_product_delete",
+    "list_pending_changes",
+}
 
 
 # --- registry ----------------------------------------------------------------
@@ -103,11 +207,8 @@ def _user_tools(email: str | None) -> dict[str, Callable[..., Any]]:
 TOOLS: dict[str, Callable[..., Any]] = {
     "product_db": product_db,
     "price_api": price_api,
-    "cart_api": cart_api,
-    "payment_api": payment_api,
     "style_engine": style_engine,
     "faq_kb": faq_kb,
-    "ticket_api": ticket_api,
 }
 
 
@@ -115,4 +216,7 @@ def get_tools(names: Sequence[str], owner_id: str | None = None) -> list[Callabl
     """Map an agent's declared tool names to callables, binding the signed-in customer
     (owner_id = account email) into the tools that touch customer records."""
     tools = {**TOOLS, **_user_tools(owner_id)}
+    # Binding merchant tools costs an account lookup, so only pay it when asked for.
+    if _MERCHANT_TOOL_NAMES & set(names):
+        tools.update(_merchant_tools(owner_id))
     return [tools[name] for name in names if name in tools]
