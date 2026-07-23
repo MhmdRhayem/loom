@@ -310,7 +310,7 @@ export default function App() {
                 </svg>
               </button>
             </div>
-            <div>multi-agent framework</div>
+            <div>multi-agent system</div>
           </div>
         </aside>
       )}

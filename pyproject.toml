@@ -1,43 +1,7 @@
-[build-system]
-requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.build_meta"
-
-[project]
-name = "loom"
-version = "0.1.0"
-description = "Loom — an adaptive multi-agent orchestration framework with dynamic routing, self-evaluation, and adaptive learning."
-readme = "README.md"
-requires-python = ">=3.12"
-authors = [{ name = "Mohammad Rhayem" }]
-license = { text = "Proprietary" }
-dependencies = [
-    "sqlalchemy>=2.0.36",
-    "psycopg[binary,pool]>=3.2.3",
-    "redis>=5.2",
-    "langgraph>=1.0",
-    "fastapi>=0.118",
-    "uvicorn[standard]>=0.34",
-    "pyyaml>=6.0.3",
-    "langchain>=1.3.11",
-    "langchain-anthropic>=1.4.7",
-    "langchain-openai>=1.3.3",
-]
-
-[project.optional-dependencies]
-dev = [
-    "pytest>=8.0",
-    "pytest-asyncio>=0.24",
-    "httpx>=0.28",
-    "ruff>=0.15.20",
-]
-# Used by the shopping-assistant demo (login layer + semantic retrieval), not the framework.
-demo = [
-    "pyjwt>=2.13",
-    "qdrant-client>=1.18",
-]
-
-[tool.setuptools.packages.find]
-where = ["src"]
+# Loom is a flat application, not an installable package: there is no build-system or
+# [project] table here. Dependencies live in requirements.txt / requirements-dev.txt and
+# the app runs from the repo root (`backend` and `demo` import directly). This file only
+# carries tool configuration.
 
 [tool.ruff]
 line-length = 100

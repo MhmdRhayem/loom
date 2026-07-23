@@ -15,7 +15,7 @@ the interface features around them.
 cd "C:\Mhmd\M2 AI and Data Engineering\Final Project\multi-agent-framework"
 
 docker compose up -d                                    # Postgres :5433 + Redis :6379 + Qdrant :6333
-.\.venv\Scripts\python.exe scripts\init_db.py           # framework schema (idempotent, self-migrating)
+.\.venv\Scripts\python.exe scripts\init_db.py           # database schema (idempotent, self-migrating)
 .\.venv\Scripts\python.exe -m demo.shopping_assistant.seed   # shop data + semantic index (idempotent)
 
 # Backend (keep this terminal open) — .env already has OPENAI_API_KEY + DEFAULT_PROVIDER=openai
@@ -88,7 +88,7 @@ The roster the router picks from. Each agent is defined by one YAML file in
 |---|---|---|---|
 | `order_tracking` | fast | `order_api`, `list_my_orders` | "Where is my order?" — order status, shipment tracking, and delivery estimates for already-placed orders. Read-only: never modifies anything. |
 | `catalog_advisor` | standard | `product_db`, `price_api` | All pre-purchase catalog help: search, recommend, filter, and compare products, answer product questions, and find the best price including deals and coupons. |
-| `fit_stylist` | standard | `style_engine` | Sizing and style advice tailored to the shopper: size recommendations, fit diagnosis, outfit suggestions. Kept separate from `catalog_advisor` on purpose — their boundary is the router stress test in Scenario C1. |
+| `fit_stylist` | standard | `style_engine`, `product_db` | Sizing and style advice tailored to the shopper: size recommendations, fit diagnosis, outfit suggestions. Carries `product_db` so its outfit advice names real catalog items (with live price/stock) rather than generic fashion tips. Kept separate from `catalog_advisor` on purpose — their boundary is the router stress test in Scenario C1. |
 | `checkout_payments` | deep | `cart_api`, `payment_api`, `price_api` | Problems completing a purchase: stock checks, cart and checkout failures, payment/promo/billing issues at the point of sale (`price_api` lets it actually verify coupons). Works on the **in-flight cart**, not placed orders — that's what keeps it crisp against `order_tracking`. |
 | `returns_refunds` | standard | `returns_api` | Returns, refunds, and exchanges under the store's return policy — post-purchase reversals only, not tracking or new purchases. |
 | `account_assistant` | fast | `account_api` | Account and profile help: login issues, password/security resets, updating profile, addresses, and settings. |

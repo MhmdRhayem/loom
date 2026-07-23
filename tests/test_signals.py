@@ -1,6 +1,6 @@
 """Reward signals (Phase 6) — pure functions, no LLM or I/O."""
 
-from multi_agent_framework.learning.signals import (
+from backend.learning.signals import (
     reward_from_agent_eval,
     reward_from_eval,
     reward_from_feedback,

@@ -1,8 +1,8 @@
 """Small pure helpers: config env parsing, title truncation, prompt assembly."""
 
-from multi_agent_framework.core.config import _csv, _flag
-from multi_agent_framework.core.prompt_builder import build_messages, message_text
-from multi_agent_framework.storage.repositories.analytics import _truncate
+from backend.core.config import _csv, _flag
+from backend.core.prompt_builder import build_messages, message_text
+from backend.storage.repositories.analytics import _truncate
 
 
 def test_flag_parsing(monkeypatch):

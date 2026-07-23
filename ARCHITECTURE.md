@@ -1,9 +1,9 @@
 # Architecture
 
-Loom is a provider-agnostic multi-agent orchestration framework (the reusable core under
-`src/multi_agent_framework/`) demonstrated by a complete e-commerce shopping assistant
-(`demo/shopping_assistant/` + `frontend/`). The framework imports **nothing** from the
-demo; an app attaches through a handful of explicit seams and nothing else. Agents are
+Loom is an **e-commerce AI assistant** — a complete shopping assistant
+(`demo/shopping_assistant/` + `frontend/`) built on a reusable, provider-agnostic
+multi-agent core (`backend/`). The core imports **nothing** from the storefront; the
+assistant attaches through a handful of explicit seams and nothing else. Agents are
 declarative data, not code: they name a *model tier* (`fast`/`standard`/`deep`), never a
 model ID, so one environment variable swaps the whole fleet between Anthropic, OpenAI, and
 Google. Every chat turn runs the same fixed pipeline. Read the README to run it; this is
@@ -12,8 +12,8 @@ the map — everything listed here is built, wired, and verified working.
 ## The reuse seams
 
 ```
-  you write (demo/):   definitions/*.yaml  +  tools.py (get_tools)  +  app.py (composition root)
-  framework runtime:   create_app  ─▶  build_graph(...)  ─▶  LangGraph pipeline  ─▶  FastAPI
+  the storefront (demo/):   definitions/*.yaml  +  tools.py (get_tools)  +  app.py (composition root)
+  core runtime (backend/):  create_app  ─▶  build_graph(...)  ─▶  LangGraph pipeline  ─▶  FastAPI
 ```
 
 | Seam | What you provide | Loaded by |
@@ -25,8 +25,8 @@ the map — everything listed here is built, wired, and verified working.
 | **Visibility** (opt.) | `agent_visibility(request) -> [names] \| None` | filters the router menu, `/agents`, and peer tools per caller |
 | **Analytics guard** (opt.) | `analytics_guard(request)` | gates the aggregate dashboards (e.g. admin-only) |
 
-The demo's composition root ([demo/shopping_assistant/app.py](demo/shopping_assistant/app.py))
-is ~40 lines: registry + `get_tools` + the three hooks + three demo routers (auth,
+The assistant's composition root ([demo/shopping_assistant/app.py](demo/shopping_assistant/app.py))
+is ~40 lines: registry + `get_tools` + the three hooks + three storefront routers (auth,
 storefront, merchant management).
 
 ## The pipeline (`core/graph.py`)
@@ -149,7 +149,7 @@ placeholders to verify at integration.) Demo-side: `AUTH_SECRET`, `QDRANT_URL`,
 
 ## HTTP surface
 
-Framework (`api/`): `GET /health` (component status, never raises), `GET /agents`
+Core (`backend/api/`): `GET /health` (component status, never raises), `GET /agents`
 (visibility-filtered roster), `POST /chat` (blocking turn + full trace), `POST
 /chat/stream` (SSE: stage/token/done/error), `POST /feedback` (owner-checked thumbs),
 `POST /dream`, `GET|DELETE /conversations*` (owner-scoped list/detail/delete; 404 for
@@ -180,17 +180,29 @@ and `loom_products`. All three run from `docker-compose.yml` with pinned images
 matching to retrieval by meaning: corpora embedded into Qdrant (cosine, HNSW, stable
 UUIDv5 point ids, staleness-diffed batched indexing at seed time), queries embedded per
 call, FAQ answers returned **with their policy source** and a score floor (a weak match
-falls back rather than citing noise). Lives entirely at the tool seam — zero framework
-changes — and degrades silently to keyword search when Qdrant or the embedding key is
+falls back rather than citing noise). Lives entirely at the tool seam — zero
+changes to the core — and degrades silently to keyword search when Qdrant or the embedding key is
 absent. Try: *"can I get my money back if it doesn't fit?"* → cites `policy/returns` with
 no keyword overlap.
 
-## The demo, end to end
+## The assistant, end to end
 
 Eight agents (`definitions/*.yaml`): catalog_advisor, fit_stylist, order_tracking,
 checkout_payments (the one deep-tier agent, always judged), returns_refunds,
 account_assistant, support_concierge (router fallback), and merchant-only shop_manager
 (proposes catalog changes into an approval queue — the AI drafts, the human commits).
+
+| Agent | Tier | What it does | Fallback |
+|-------|------|--------------|----------|
+| `catalog_advisor` | standard | Pre-purchase catalog help: product search, recommendation, filtering, comparison, product Q&A, and best price including deals and coupons. Merge of the former product-recommendation + price-comparison agents. | `support_concierge` |
+| `fit_stylist` | standard | Sizing/fit guidance and style/outfit advice tailored to the shopper — size recommendations, fit diagnosis, styling — grounded in items the store actually sells. | `catalog_advisor` |
+| `order_tracking` | fast | "Where is my order" — lists a customer's orders and gives status, shipment tracking, and delivery estimates. Read-only, so lightly judged (0.15). | `support_concierge` |
+| `checkout_payments` | deep | Resolves problems completing a purchase on the in-flight cart: stock/availability, cart and checkout failures, and payment, promo-code, and billing issues. The single deep-tier agent, always judged (1.0). | `support_concierge` |
+| `returns_refunds` | standard | Initiates and tracks returns, refunds, and exchanges under the store's return policy — post-purchase reversals. Irreversible money path, always judged (1.0). | `support_concierge` |
+| `account_assistant` | fast | Account and profile help: login issues, password/security resets, and updating profile, addresses, and settings. | `support_concierge` |
+| `support_concierge` | standard | General catch-all: policy/FAQ, complaints, clarifying ambiguous requests, and escalation to a human with full context. The router's fallback and low-confidence clarification target. | `human_handoff` (terminal sink) |
+| `shop_manager` | standard | **Merchant-only** (hidden from clients/admins): review the signed-in merchant's own catalog and propose product add/update/remove. Every proposal is queued for approval, never applied directly. | `support_concierge` |
+
 Tools are **identity-bound closures**: the verified email is baked in at bind time, so
 "whose orders" is not a model-controllable parameter (merchant tools bind lazily — the
 account lookup only runs when a merchant tool is requested). Auth: PBKDF2-SHA256 (600k
@@ -231,7 +243,7 @@ responsive off-canvas sidebar.
 | `storage/models.py`, `storage/repositories/*` | ORM tables; conversations (atomic `record_turn`), memory (atomic upsert), performance, dreams, analytics (5-query overview) |
 | `storage/redis_store.py` | Redis client + reserved key patterns |
 | `_platform.py` | Windows selector event loop (async psycopg) |
-| `scripts/init_db.py` | Create/migrate the framework schema (idempotent) |
+| `scripts/init_db.py` | Create/migrate the database schema (idempotent) |
 | `scripts/benchmark.py` | Outside-in replay benchmark → CSV (routing hits, eval, latency, tokens) |
 | `demo/shopping_assistant/` | `app.py` (root), `auth.py`, `tools.py`, `retrieval.py` (RAG), `db.py`/`seed.py` (shop schema + policy corpus), `shop_routes.py`, `manage_routes.py`, `definitions/` (8 agents) |
 | `frontend/src/` | The React app (pages: Chat, Conversations, Storefront, Products, ShopDashboard, Dashboard, Users, Login) |
@@ -254,7 +266,7 @@ enforcement, semantic retrieval over Qdrant, the full storefront/merchant/admin 
 and the benchmark + ablation harness (flags). **Reserved** (present, not on the request
 path): Redis conv-state/routing-cache/flag patterns, the `memory_scope` YAML field.
 **Deferred by design:** cross-process workers and Redis mailboxes (in-process multi-agent
-covers the need), an agent base class, framework-level approval gates (the demo's
+covers the need), an agent base class, core-level approval gates (the storefront's
 merchant queue is the domain-level version), Thompson-sampling routing (built, measured
 against the problem, removed), and vector-based recall for *per-user* memory (relational
 recall is exact and auditable at dozens of facts; the corpus-scale retrieval lives in the

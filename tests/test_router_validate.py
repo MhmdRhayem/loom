@@ -1,6 +1,6 @@
 """Routing policy (_validate) — pure, so tested without an LLM call."""
 
-from multi_agent_framework.agents.router import RouterDecision, _validate
+from backend.agents.router import RouterDecision, _validate
 
 
 class FakeRegistry:

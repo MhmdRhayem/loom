@@ -1,14 +1,19 @@
 # Agent definition — Fit & Style Advisor (shopping-assistant demo).
 # Renamed from style_fit_advisor. Kept SEPARATE from catalog_advisor on purpose:
-# distinct tool (style_engine) and subjective body/fit/aesthetic reasoning. The
-# catalog_advisor <-> fit_stylist pair is a deliberate adjacent-boundary case that
-# stresses the router ("recommend a dress that will actually fit me").
+# subjective body/fit/aesthetic reasoning vs. search/compare/price. It carries
+# product_db so its outfit advice is grounded in items the store actually sells
+# (an "outfit_suggestion" capability without catalog access could only answer
+# with generic fashion advice — the roster-honesty rule: every declared
+# capability needs a tool that can ground it). The catalog_advisor <->
+# fit_stylist pair remains a deliberate adjacent-boundary case that stresses
+# the router ("recommend a dress that will actually fit me").
 
 name: fit_stylist
 description: >-
   Sizing/fit guidance and style/outfit advice tailored to the shopper: size
-  recommendations, fit diagnosis, styling, and outfit suggestions. Reasons about
-  fit and taste, not catalog search or pricing.
+  recommendations, fit diagnosis, styling, and outfit suggestions grounded in
+  items from the store's catalog. Reasons about fit and taste; not for price
+  questions, deals, or plain product search.
 
 capabilities:
   - size_recommendation
@@ -18,6 +23,7 @@ capabilities:
 
 tools:
   - style_engine
+  - product_db
 
 model: standard
 max_tokens: 1536

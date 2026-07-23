@@ -8,9 +8,9 @@
 name: catalog_advisor
 description: >-
   Pre-purchase product help over the catalog: search, recommend, filter, and
-  compare products, answer product attribute questions, and find the best price
-  including deals and coupons. Does not handle checkout/payment, sizing/fit advice,
-  placed orders, or returns.
+  compare products, answer product attribute and stock/availability questions
+  about catalog items, and find the best price including deals and coupons.
+  Does not handle checkout/payment, sizing/fit advice, placed orders, or returns.
 
 capabilities:
   - product_search

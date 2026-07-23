@@ -2,11 +2,14 @@
 
 *Weave many specialist LLM agents into one answer.*
 
-A reusable core for multi-agent LLM assistants: an LLM **router** picks one agent per
-turn, agents are **declarative YAML** (not Python subclasses), and tools are **plain
-functions**. The framework (`src/multi_agent_framework/`) imports nothing from `demo/` —
-you build your own assistant by filling **three seams**. An 8-agent e-commerce demo with
-a React frontend ships as a worked example. Depth: **[ARCHITECTURE.md](ARCHITECTURE.md)**.
+Loom is an **e-commerce AI assistant**: shoppers ask in plain language and a team of
+specialist agents handle product discovery, orders, returns, checkout, styling, account,
+and support — one reply, no menus. It runs on a reusable multi-agent core: an LLM
+**router** picks the right agent(s) per turn, agents are **declarative YAML** (not Python
+subclasses), and tools are **plain functions**. The core (`backend/`) is provider-agnostic
+(Anthropic or OpenAI) and holds no shop-specific knowledge; the storefront — agents, tools,
+the shop database, and a React UI — lives in `demo/shopping_assistant/` and `frontend/`.
+Depth: **[ARCHITECTURE.md](ARCHITECTURE.md)**.
 
 One `/chat` turn runs a LangGraph pipeline:
 `load_memory → route → execute_agents → evaluate → save_memory`, with a
@@ -14,31 +17,37 @@ bounded retry on a failing evaluation. The router can pick more than one agent; 
 parallel and their answers are synthesized into one reply. Any agent can also call a peer
 mid-task via an auto-generated `ask_<name>` tool.
 
-## The three seams (how you reuse it)
+## How the assistant is built on the core
+
+The e-commerce assistant is assembled from the reusable core through three seams — the same
+seams any Loom-based assistant would use:
 
 1. **Agents** — one YAML file per agent in a directory → `AgentRegistry.from_directory(path)`.
 2. **Tools** — plain functions + a `get_tools(names) -> [callables]` map, passed as the `tool_provider`.
 3. **Composition root** — `create_app(registry, tool_provider, fallback_agent=...)` → a FastAPI app.
 
 ```python
-# myapp/app.py — your whole composition root
+# demo/shopping_assistant/app.py — the assistant's composition root
 from pathlib import Path
-from multi_agent_framework.agents.registry import AgentRegistry
-from multi_agent_framework.api.main import create_app
+from backend.agents.registry import AgentRegistry
+from backend.api.main import create_app
 from .tools import get_tools
 
 registry = AgentRegistry.from_directory(Path(__file__).parent / "definitions")
-app = create_app(registry, get_tools, fallback_agent="concierge")  # your own catch-all agent
+app = create_app(registry, get_tools, fallback_agent="support_concierge")  # the catch-all agent
 ```
 
 ## Layout
 
 ```
-src/multi_agent_framework/   the framework (reusable; no app-specific knowledge)
-demo/shopping_assistant/     a worked consumer: 8-agent e-commerce assistant + real shop DB
-frontend/                    React + Vite UI for the demo (login, chat, storefront, dashboard)
-scripts/init_db.py           create the framework schema from the ORM models
+backend/                     the reusable multi-agent core (provider-agnostic; no shop knowledge)
+demo/shopping_assistant/     the e-commerce assistant: 8 agents, tools, real shop DB
+frontend/                    React + Vite UI (login, chat, storefront, dashboard)
+scripts/init_db.py           create the database schema from the ORM models
 ```
+
+Loom runs as a flat app — `backend` and `demo` import directly from the repo root, so there
+is no package to build or install.
 
 ## Quickstart
 
@@ -49,11 +58,11 @@ Prereqs: Python 3.12+, Node.js 20+, Docker. Run from the repo root.
 ```bash
 python -m venv .venv
 .venv\Scripts\activate                 # POSIX: . .venv/bin/activate
-pip install -e ".[dev]"
+pip install -r requirements-dev.txt
 
 docker compose up -d                   # Postgres :5433, Redis :6379
-python scripts/init_db.py              # framework schema
-python -m demo.shopping_assistant.seed # demo "shop" data (safe to re-run; also migrates)
+python scripts/init_db.py              # database schema
+python -m demo.shopping_assistant.seed # shop data (safe to re-run; also migrates)
 
 # provider key in .env — Anthropic is the default
 #   ANTHROPIC_API_KEY=...
@@ -78,7 +87,7 @@ their passwords (client `mohammad@example.com`, merchant `merchant@example.com`,
 
 ### Raw API
 
-The demo requires a login — get a token, then chat (the account from the token scopes
+Chat requires a login — get a token, then chat (the account from the token scopes
 orders, conversations, and memory):
 
 ```bash

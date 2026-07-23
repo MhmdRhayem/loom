@@ -1,5 +1,5 @@
 # Agent definition — Checkout & Payments (shopping-assistant demo). NEW.
-# Owns the "can I complete this purchase" moment: stock/availability, cart and
+# Owns the "can I complete this purchase" moment: in-cart availability, cart and
 # checkout failures, and payment/promo/billing. The SINGLE deep-tier agent (hardest
 # reasoning, highest stakes). Tools are cart_api + payment_api (the in-flight
 # purchase) and price_api (so promo_apply questions can check a coupon's discount
@@ -8,10 +8,12 @@
 
 name: checkout_payments
 description: >-
-  Resolves problems completing a purchase: stock/availability checks, cart and
-  checkout failures, and payment, promo-code, and billing issues at the point of
-  sale. Works on the in-flight cart and payment, not on already-placed orders or
-  post-purchase returns.
+  Resolves problems completing a purchase: cart and checkout failures,
+  availability checks for items already in the shopper's cart, and payment,
+  promo-code, and billing issues at the point of sale. Works on the in-flight
+  cart and payment only, not on already-placed orders, post-purchase returns,
+  general catalog stock questions, or store policy questions such as which
+  payment methods the store accepts.
 
 capabilities:
   - stock_check

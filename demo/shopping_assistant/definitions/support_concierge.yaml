@@ -6,9 +6,11 @@
 
 name: support_concierge
 description: >-
-  General support catch-all: answers policy and FAQ questions, handles complaints,
-  asks a clarifying question when a request is ambiguous, and escalates to a human
-  agent with full context when needed. The safe destination when no specialist fits.
+  General support catch-all: answers store policy and FAQ questions (shipping
+  options and costs, return policy, accepted payment methods, privacy), handles
+  complaints, asks a clarifying question when a request is ambiguous, and
+  escalates to a human agent with full context when needed. The safe destination
+  when no specialist fits.
 
 capabilities:
   - policy_faq

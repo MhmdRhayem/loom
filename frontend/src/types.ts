@@ -1,5 +1,5 @@
 // TypeScript mirrors of the backend's pydantic response models
-// (src/multi_agent_framework/api/models.py + analytics_models.py, demo shop_routes.py).
+// (backend/api/models.py + analytics_models.py, demo shop_routes.py).
 // Datetimes arrive as ISO-8601 strings.
 
 // --- auth ---

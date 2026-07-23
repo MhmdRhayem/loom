@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from multi_agent_framework.agents.registry import AgentRegistry
-from multi_agent_framework.api.main import create_app
+from backend.agents.registry import AgentRegistry
+from backend.api.main import create_app
 
 from .auth import auth_router, require_admin, resolve_agent_visibility, resolve_identity
 from .manage_routes import manage_router

@@ -25,22 +25,120 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 # Grounded in the seeded database; expected agent = the roster's intended owner
-# of each request (Scenario A of DEMO_TESTING.md, adapted to the test account).
+# of each request (DEMO_TESTING.md scenarios, adapted to the test account:
+# mohammad@example.com owns ORD-1005/ORD-1006 and the seeded declined-payment cart).
+# Five prompts per client-visible agent plus five multi-agent turns; for the
+# multi-agent rows `expect` is the primary owner and the hit counts if it is
+# among the routed agents.
 PROMPTS = [
+    # order_tracking
     {"prompt": "Where is my order ORD-1005?", "expect": "order_tracking"},
     {"prompt": "What orders do I have?", "expect": "order_tracking"},
+    {"prompt": "Has ORD-1006 shipped yet?", "expect": "order_tracking"},
+    {
+        "prompt": "What's the tracking number for my trench coat order?",
+        "expect": "order_tracking",
+    },
+    {"prompt": "When will ORD-1006 arrive?", "expect": "order_tracking"},
+    # catalog_advisor
     {"prompt": "Do you have any dresses under $60?", "expect": "catalog_advisor"},
+    {
+        "prompt": "What's the price of the Merino Wool Sweater? Any deals on it?",
+        "expect": "catalog_advisor",
+    },
+    {
+        "prompt": "Compare the Linen Wrap Dress and the Aurora Midi Dress for me.",
+        "expect": "catalog_advisor",
+    },
+    {"prompt": "Is the Canvas Tote Bag in stock?", "expect": "catalog_advisor"},
+    {
+        "prompt": "Is there a coupon code for the Leather Ankle Boots?",
+        "expect": "catalog_advisor",
+    },
+    # fit_stylist
     {
         "prompt": "I'm between sizes for the Linen Wrap Dress - which size should I take?",
         "expect": "fit_stylist",
     },
+    {"prompt": "What would you style with the Classic Trench Coat?", "expect": "fit_stylist"},
+    {"prompt": "Do the High-Rise Slim Jeans run large or small?", "expect": "fit_stylist"},
+    {
+        "prompt": "Suggest an outfit for a job interview from your catalog.",
+        "expect": "fit_stylist",
+    },
+    {
+        "prompt": "I'm usually a medium - will the Merino Wool Sweater fit me?",
+        "expect": "fit_stylist",
+    },
+    # checkout_payments
     {
         "prompt": "My payment keeps getting declined at checkout - what's wrong?",
         "expect": "checkout_payments",
     },
+    {"prompt": "What's in my cart right now?", "expect": "checkout_payments"},
+    {"prompt": "Does the DRESS15 coupon work on my cart?", "expect": "checkout_payments"},
+    {"prompt": "Why won't my checkout go through?", "expect": "checkout_payments"},
+    {
+        "prompt": "Can I pay with a different card after my card was declined?",
+        "expect": "checkout_payments",
+    },
+    # returns_refunds
     {"prompt": "I want to return my order ORD-1005.", "expect": "returns_refunds"},
+    {
+        "prompt": "I want to exchange the dress from ORD-1006 for a size S.",
+        "expect": "returns_refunds",
+    },
+    {"prompt": "What's the status of my refund?", "expect": "returns_refunds"},
+    {
+        "prompt": "My sweater arrived damaged - I want my money back.",
+        "expect": "returns_refunds",
+    },
+    {"prompt": "Start a return for my order ORD-1006.", "expect": "returns_refunds"},
+    # account_assistant
     {"prompt": "I forgot my password - how do I reset it?", "expect": "account_assistant"},
+    {"prompt": "How do I change my shipping address?", "expect": "account_assistant"},
+    {"prompt": "Update my email address on my account.", "expect": "account_assistant"},
+    {
+        "prompt": "I think someone else logged into my account - help!",
+        "expect": "account_assistant",
+    },
+    {"prompt": "Change the phone number on my profile.", "expect": "account_assistant"},
+    # support_concierge
     {"prompt": "Which payment methods do you accept?", "expect": "support_concierge"},
+    {
+        "prompt": "Do you ship internationally, and how much does it cost?",
+        "expect": "support_concierge",
+    },
+    {"prompt": "How long does standard shipping take?", "expect": "support_concierge"},
+    {
+        "prompt": "I have a complaint about your customer service - I want to speak to a human.",
+        "expect": "support_concierge",
+    },
+    {
+        "prompt": "Is my card information stored on your servers?",
+        "expect": "support_concierge",
+    },
+    # multi-agent turns (expect = primary owner)
+    {
+        "prompt": "Where is order ORD-1006, and can I still return it if the dress doesn't fit?",
+        "expect": "order_tracking",
+    },
+    {
+        "prompt": "Is the Everyday Cotton Tee back in stock? Also, I need to update my shipping address.",
+        "expect": "catalog_advisor",
+    },
+    {
+        "prompt": "What's in my cart right now, and does the DRESS15 coupon apply to it?",
+        "expect": "checkout_payments",
+    },
+    {
+        "prompt": "Before I retry my payment, is the dress in my cart still in stock, and is there a coupon for it?",
+        "expect": "checkout_payments",
+    },
+    {
+        "prompt": "Track ORD-1005 and tell me your policy if it arrives damaged.",
+        "expect": "order_tracking",
+    },
 ]
 
 
