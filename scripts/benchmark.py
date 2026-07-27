@@ -11,6 +11,14 @@ Usage (backend running on :8000, DB seeded):
 
 Start the backend with a flag off for an ablation run, e.g.:
     $env:ENABLE_EVALUATION = "false"; uvicorn ... ; python scripts/benchmark.py --label eval-off
+
+Reset between labelled runs, or the comparison is not clean: several prompts drive
+write tools (a second return on the same order takes a different path, address updates
+persist) and auto-memory accumulates across the set, so a later run sees a different
+store than the first one did. Before each run:
+
+    python -m demo.shopping_assistant.seed --reset
+    (and clear the benchmark account's rows from auto_memory)
 """
 
 from __future__ import annotations
@@ -174,7 +182,11 @@ def run(base_url: str, email: str, password: str, repeat: int, label: str) -> Pa
                     "prompt": case["prompt"],
                     "expected_agent": case["expect"],
                     "routed_agents": "+".join(agents),
+                    # Two metrics, because they answer different questions: recall is
+                    # right for the 5 multi-agent rows, but on the 35 single-agent rows
+                    # a router that returned every agent would score 100% on it.
                     "routing_hit": case["expect"] in agents,
+                    "routing_exact": agents == [case["expect"]],
                     "confidence": reply.get("routing_confidence"),
                     "category": reply.get("query_category"),
                     "eval_stage": eval_result.get("stage"),
@@ -182,11 +194,20 @@ def run(base_url: str, email: str, password: str, repeat: int, label: str) -> Pa
                     "eval_pass": eval_result.get("pass"),
                     "retries": reply.get("retry_count", 0),
                     "latency_ms": latency_ms,
-                    "tokens": sum(r.get("tokens") or 0 for r in reply.get("agent_runs") or []),
+                    # Named for what it is: the router, critic, synthesizer, extractor
+                    # and titler all spend tokens that never reach agent_runs, so this
+                    # is not the turn's total cost.
+                    "agent_tokens": sum(
+                        r.get("tokens") or 0 for r in reply.get("agent_runs") or []
+                    ),
                 }
             )
             hit = "OK  " if case["expect"] in agents else "MISS"
             print(f"  {hit} [{'+'.join(agents) or '-':<35}] {latency_ms:>6}ms  {case['prompt']}")
+
+    if not rows:
+        print("no rows collected (empty prompt set or --repeat 0); nothing written")
+        raise SystemExit(1)
 
     out_dir = Path("benchmarks")
     out_dir.mkdir(exist_ok=True)
@@ -198,15 +219,17 @@ def run(base_url: str, email: str, password: str, repeat: int, label: str) -> Pa
         writer.writerows(rows)
 
     hits = sum(1 for r in rows if r["routing_hit"])
+    exact = sum(1 for r in rows if r["routing_exact"])
     latencies = [r["latency_ms"] for r in rows]
     scores = [r["eval_score"] for r in rows if isinstance(r["eval_score"], (int, float))]
     confidences = [r["confidence"] for r in rows if isinstance(r["confidence"], (int, float))]
     print()
-    print(f"routing accuracy : {hits}/{len(rows)} ({hits / len(rows):.0%})")
+    print(f"routing recall   : {hits}/{len(rows)} ({hits / len(rows):.0%}) expected agent present")
+    print(f"routing exact    : {exact}/{len(rows)} ({exact / len(rows):.0%}) expected agent alone")
     print(f"avg confidence   : {statistics.mean(confidences):.2f}" if confidences else "")
     print(f"avg eval score   : {statistics.mean(scores):.2f}" if scores else "")
     print(f"latency (median) : {statistics.median(latencies)}ms")
-    print(f"total tokens     : {sum(r['tokens'] for r in rows)}")
+    print(f"agent tokens     : {sum(r['agent_tokens'] for r in rows)} (excludes plumbing calls)")
     print(f"csv              : {out_path}")
     return out_path
 

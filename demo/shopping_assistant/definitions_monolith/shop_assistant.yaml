@@ -1,0 +1,57 @@
+# Ablation control roster: ONE generalist agent holding every customer-facing tool.
+# This is the baseline the thesis' central premise is measured against — that a routed
+# roster of specialists beats a single generalist. Nothing here is used by the running
+# app; it is loaded only by app_monolith.py for a labelled benchmark run.
+#
+# Deliberately matched to the real roster where it can be, so the comparison isolates
+# routing rather than budget: standard tier (the roster's most common), the union of the
+# seven client agents' rubrics, and judge_sample_rate 1.0 because there is no per-agent
+# risk pricing available to a single agent — which is itself one of the findings.
+
+name: shop_assistant
+description: >-
+  A single general-purpose shopping assistant that handles every customer request:
+  product search and recommendation, pricing, deals and coupons, sizing and styling,
+  order status and tracking, cart and checkout problems, payments and billing,
+  returns and refunds, account and profile help, and store policy questions.
+
+capabilities:
+  - product_search
+  - recommendation
+  - price_check
+  - fit_advice
+  - styling
+  - order_status
+  - cart_ops
+  - checkout_support
+  - payment_troubleshooting
+  - returns
+  - account_help
+  - policy_faq
+  - escalation
+
+tools:
+  - product_db
+  - price_api
+  - style_engine
+  - faq_kb
+  - list_my_orders
+  - order_api
+  - returns_api
+  - account_api
+  - cart_api
+  - payment_api
+  - ticket_api
+
+model: standard
+max_tokens: 1280
+
+eval_rubric:
+  - accuracy
+  - policy_compliance
+  - transaction_safety
+  - helpfulness
+  - clarity
+judge_sample_rate: 1.0
+
+fallback_agent: human_handoff
