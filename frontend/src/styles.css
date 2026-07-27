@@ -77,7 +77,10 @@ body {
 
 #root,
 .app {
-  height: 100vh;
+  /* dvh, not vh: on mobile Safari/Chrome 100vh counts the space behind the URL bar,
+     which pushes the chat composer below the fold on exactly the narrow screens the
+     responsive block at the bottom of this file exists to serve. */
+  height: 100dvh;
 }
 
 .app {
@@ -1153,6 +1156,7 @@ button.ghost:hover {
 }
 
 .product-card {
+  overflow: hidden;
   transition: border-color 0.15s ease, transform 0.15s ease;
 }
 
@@ -1291,11 +1295,39 @@ button.ghost:hover {
 
 .drawer-foot {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
-  gap: 16px;
+  gap: 10px 16px;
   padding: 14px 20px;
   border-top: 1px solid var(--border-soft);
+}
+
+/* promo code entry: full width on its own row above the subtotal + checkout button */
+.coupon-field {
+  flex: 1 1 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.coupon-field input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-inset);
+  color: var(--text);
+  font-size: 13px;
+  text-transform: uppercase;
+}
+
+.coupon-field input:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--ring);
 }
 
 /* theme switch floating on the (sidebar-less) login page */
@@ -1660,10 +1692,6 @@ button.ghost:hover {
   font-size: 12px;
 }
 
-.product-card {
-  overflow: hidden;
-}
-
 .product-img {
   display: block;
   width: calc(100% + 36px);
@@ -1758,4 +1786,36 @@ button.ghost:hover {
   font-style: normal;
   color: var(--text-dim);
   margin-right: 5px;
+}
+
+/* --- charts (recharts) ---------------------------------------------------
+   Grid lines and axis ticks are SVG presentation attributes, so var() cannot be
+   passed through a React prop the way the tooltip's inline style can. Styling
+   them here is what makes the dashboards follow the theme instead of staying
+   pinned to the light palette. */
+
+.recharts-cartesian-grid line,
+.recharts-cartesian-axis-line,
+.recharts-cartesian-axis-tick-line {
+  stroke: var(--border-soft);
+}
+
+.recharts-cartesian-axis-tick-value {
+  fill: var(--text-dim);
+}
+
+/* --- reduced motion ------------------------------------------------------
+   Honour the OS setting: this file defines six keyframe animations and the chat
+   log scrolls programmatically, all of which are exactly what this preference
+   exists to switch off. */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms;
+    animation-iteration-count: 1;
+    transition-duration: 0.01ms;
+    scroll-behavior: auto;
+  }
 }

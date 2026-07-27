@@ -16,16 +16,17 @@ import { useAuth } from '../auth'
 import type { ShopSales } from '../types'
 
 const CHART = {
-  grid: '#e4e7f0',
-  text: '#667089',
   accent: '#6d5df0',
 }
 
+// Inline styles land on a real DOM node, so the theme variables resolve here directly.
+// The grid/axis colours cannot come through this route (they are SVG presentation
+// attributes), so those live in styles.css instead — see the recharts block there.
 const TOOLTIP_STYLE = {
-  backgroundColor: '#ffffff',
-  border: '1px solid #d7dbe8',
+  backgroundColor: 'var(--bg-card)',
+  border: '1px solid var(--border)',
   borderRadius: 8,
-  color: '#1c2130',
+  color: 'var(--text)',
   fontSize: 12,
 }
 
@@ -87,9 +88,9 @@ export default function ShopDashboard() {
             <h3>Revenue by day</h3>
             <ResponsiveContainer width="100%" height={240}>
               <LineChart data={sales.by_day}>
-                <CartesianGrid stroke={CHART.grid} strokeDasharray="3 3" />
-                <XAxis dataKey="day" stroke={CHART.text} fontSize={11} />
-                <YAxis stroke={CHART.text} fontSize={11} tickFormatter={(v) => `$${v}`} />
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="day" fontSize={11} />
+                <YAxis fontSize={11} tickFormatter={(v) => `$${v}`} />
                 <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v) => money(Number(v))} />
                 <Line type="monotone" dataKey="revenue" stroke={CHART.accent} dot={false} />
               </LineChart>
@@ -100,9 +101,9 @@ export default function ShopDashboard() {
             <h3>Top products by revenue</h3>
             <ResponsiveContainer width="100%" height={240}>
               <BarChart data={sales.top_products}>
-                <CartesianGrid stroke={CHART.grid} strokeDasharray="3 3" />
-                <XAxis dataKey="name" stroke={CHART.text} fontSize={11} />
-                <YAxis stroke={CHART.text} fontSize={11} tickFormatter={(v) => `$${v}`} />
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="name" fontSize={11} />
+                <YAxis fontSize={11} tickFormatter={(v) => `$${v}`} />
                 <Tooltip
                   contentStyle={TOOLTIP_STYLE}
                   cursor={{ fill: 'transparent' }}

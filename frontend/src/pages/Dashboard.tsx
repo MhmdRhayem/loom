@@ -22,18 +22,19 @@ import type {
 } from '../types'
 
 const CHART = {
-  grid: '#e4e7f0',
-  text: '#667089',
   accent: '#6d5df0',
   ok: '#10b981',
   warn: '#f59e0b',
 }
 
+// Inline styles land on a real DOM node, so the theme variables resolve here directly.
+// The grid/axis colours cannot come through this route (they are SVG presentation
+// attributes), so those live in styles.css instead — see the recharts block there.
 const TOOLTIP_STYLE = {
-  backgroundColor: '#ffffff',
-  border: '1px solid #d7dbe8',
+  backgroundColor: 'var(--bg-card)',
+  border: '1px solid var(--border)',
   borderRadius: 8,
-  color: '#1c2130',
+  color: 'var(--text)',
   fontSize: 12,
 }
 
@@ -112,9 +113,9 @@ export default function Dashboard() {
           <h3>Turns per agent</h3>
           <ResponsiveContainer width="100%" height={240}>
             <BarChart data={agents?.agents ?? []}>
-              <CartesianGrid stroke={CHART.grid} strokeDasharray="3 3" />
-              <XAxis dataKey="agent" stroke={CHART.text} fontSize={11} />
-              <YAxis stroke={CHART.text} fontSize={11} allowDecimals={false} />
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="agent" fontSize={11} />
+              <YAxis fontSize={11} allowDecimals={false} />
               <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ fill: 'transparent' }} />
               <Legend wrapperStyle={{ fontSize: 12 }} />
               <Bar dataKey="turns" fill={CHART.accent} radius={[4, 4, 0, 0]} />
@@ -133,9 +134,9 @@ export default function Dashboard() {
           </h3>
           <ResponsiveContainer width="100%" height={240}>
             <BarChart data={routing?.category_distribution ?? []}>
-              <CartesianGrid stroke={CHART.grid} strokeDasharray="3 3" />
-              <XAxis dataKey="key" stroke={CHART.text} fontSize={11} />
-              <YAxis stroke={CHART.text} fontSize={11} allowDecimals={false} />
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="key" fontSize={11} />
+              <YAxis fontSize={11} allowDecimals={false} />
               <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ fill: 'transparent' }} />
               <Bar dataKey="count" fill={CHART.accent} radius={[4, 4, 0, 0]} />
             </BarChart>
@@ -146,9 +147,9 @@ export default function Dashboard() {
           <h3>Turns over time</h3>
           <ResponsiveContainer width="100%" height={240}>
             <LineChart data={series?.points ?? []}>
-              <CartesianGrid stroke={CHART.grid} strokeDasharray="3 3" />
-              <XAxis dataKey="bucket" stroke={CHART.text} fontSize={11} />
-              <YAxis stroke={CHART.text} fontSize={11} allowDecimals={false} />
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="bucket" fontSize={11} />
+              <YAxis fontSize={11} allowDecimals={false} />
               <Tooltip contentStyle={TOOLTIP_STYLE} />
               <Legend wrapperStyle={{ fontSize: 12 }} />
               <Line type="monotone" dataKey="turns" stroke={CHART.accent} dot={false} />

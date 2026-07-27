@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { API_BASE, api } from '../api'
 import { TrashIcon } from '../App'
 import { useAuth } from '../auth'
-import type { Product, ProductChange, ShopOrder, ShopStats } from '../types'
+import type { Product, ProductChange, ProductPayload, ShopOrder, ShopStats } from '../types'
 
 type Tab = 'catalog' | 'orders'
 
@@ -97,7 +97,7 @@ export default function Products({ tab }: { tab: Tab }) {
     setBusy(true)
     setError(null)
     setNotice(null)
-    const body: Record<string, unknown> = {
+    const body: ProductPayload = {
       name: form.name.trim(),
       price: Number(form.price),
       category: form.category.trim(),
@@ -110,8 +110,8 @@ export default function Products({ tab }: { tab: Tab }) {
         await api.updateProduct(editingId, body)
         setNotice(`Updated ${editingId}.`)
       } else {
-        if (isAdmin) body.shop = form.shop
-        const created = await api.createProduct(body)
+        // shop is admin-only: a merchant is pinned to their own shop server-side.
+        const created = await api.createProduct(isAdmin ? { ...body, shop: form.shop } : body)
         setNotice(`Added ${created.name} (${created.id}).`)
       }
       cancelEdit()

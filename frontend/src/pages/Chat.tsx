@@ -204,9 +204,14 @@ export default function Chat() {
     }
     if (resumeId === loadedRef.current) return
     loadedRef.current = resumeId
+    // Two quick sidebar clicks put two fetches in flight; without this flag whichever
+    // resolves last wins, so A's transcript can end up on screen while the URL and the
+    // highlight say B — and the next send() posts into A.
+    let stale = false
     api
       .conversation(resumeId)
       .then((detail) => {
+        if (stale) return
         const restored: Message[] = []
         for (const t of detail.turns) {
           restored.push({ role: 'user', text: t.user_message, at: new Date(t.created_at) })
@@ -218,14 +223,24 @@ export default function Chat() {
         setMessages(restored)
       })
       .catch(() => {
+        if (stale) return
         setMessages([
           { role: 'error', text: 'Could not load that conversation.', at: new Date() },
         ])
       })
+    return () => {
+      stale = true
+    }
   }, [resumeId])
 
+  // Follow the tail as the answer streams, but stop fighting the user: if they have
+  // scrolled up to reread something, the next token must not yank them back down.
   useEffect(() => {
-    logRef.current?.scrollTo({ top: logRef.current.scrollHeight, behavior: 'smooth' })
+    const log = logRef.current
+    if (!log) return
+    const distanceFromBottom = log.scrollHeight - log.scrollTop - log.clientHeight
+    if (distanceFromBottom > 80) return
+    log.scrollTo({ top: log.scrollHeight, behavior: 'smooth' })
   }, [messages, sending, draft])
 
   const send = async (text?: string) => {
@@ -376,7 +391,9 @@ export default function Chat() {
           </div>
         ))}
         {sending && draft && (
-          <div className="msg-row assistant">
+          // polite, not assertive: the answer grows a token at a time, and an assertive
+          // region would interrupt the screen reader on every one.
+          <div className="msg-row assistant" aria-live="polite">
             <div className="msg-sender">assistant</div>
             <div className="msg assistant">
               <div className="md">

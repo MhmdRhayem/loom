@@ -17,6 +17,10 @@
     "jsx": "react-jsx",
 
     /* Linting */
+    /* Declared rather than inherited: strict is the TypeScript 6 default, so the code
+       is already checked this way, but a reader of this file should not have to know
+       the compiler's default to know what is enforced. */
+    "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "erasableSyntaxOnly": true,

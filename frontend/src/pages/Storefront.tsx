@@ -39,6 +39,9 @@ export default function Storefront({ tab }: { tab: Tab }) {
   const [cart, setCart] = useState<CartResponse | null>(null)
   const [cartOpen, setCartOpen] = useState(false)
   const [checkoutResult, setCheckoutResult] = useState<CheckoutResponse | null>(null)
+  // Promo code applied at checkout. The assistant can quote one via price_api, so the
+  // storefront needs somewhere to actually redeem it.
+  const [coupon, setCoupon] = useState('')
   const [loaded, setLoaded] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
@@ -143,9 +146,10 @@ export default function Storefront({ tab }: { tab: Tab }) {
 
   const checkout = async (newCard = false) => {
     try {
-      const res = await api.checkout(newCard)
+      const res = await api.checkout(newCard, coupon.trim())
       setCheckoutResult(res)
       if (res.placed) {
+        setCoupon('')
         setCart(await api.cart())
         setOrders((await api.orders()).orders)
       }
@@ -361,7 +365,10 @@ export default function Storefront({ tab }: { tab: Tab }) {
       {user && cartOpen && (
         <>
           <div className="drawer-overlay" onClick={() => setCartOpen(false)} />
-          <aside className="drawer">
+          {/* A bare <aside> is a landmark, not a dialog: without these a screen reader
+              announces no context on open and keeps the whole product grid in the tab
+              order behind it. Escape is already handled below. */}
+          <aside className="drawer" role="dialog" aria-modal="true" aria-label="Cart">
             <div className="drawer-head">
               <h2>
                 Cart{cartCount > 0 ? ` (${cartCount})` : ''}
@@ -452,15 +459,27 @@ export default function Storefront({ tab }: { tab: Tab }) {
               {checkoutResult?.placed && (
                 <div className="success-banner">
                   Order <strong>{checkoutResult.order_id}</strong> placed — $
-                  {checkoutResult.total?.toFixed(2)}, estimated delivery{' '}
-                  {checkoutResult.estimated_delivery}. Ask the assistant "where is my order{' '}
-                  {checkoutResult.order_id}?" to track it.
+                  {checkoutResult.total?.toFixed(2)}
+                  {checkoutResult.coupon_code
+                    ? ` (${checkoutResult.coupon_code}, -${checkoutResult.discount_pct}% off $${checkoutResult.subtotal?.toFixed(2)})`
+                    : ''}
+                  , estimated delivery {checkoutResult.estimated_delivery}. Ask the assistant
+                  "where is my order {checkoutResult.order_id}?" to track it.
                 </div>
               )}
             </div>
 
             {cartLines.length > 0 && (
               <div className="drawer-foot">
+                <label className="coupon-field">
+                  <span className="muted">promo code</span>
+                  <input
+                    value={coupon}
+                    onChange={(e) => setCoupon(e.target.value)}
+                    placeholder="e.g. SAVE10"
+                    autoComplete="off"
+                  />
+                </label>
                 <strong>subtotal ${cart?.subtotal.toFixed(2)}</strong>
                 <button className="primary" onClick={() => checkout(false)}>
                   Checkout
@@ -471,7 +490,11 @@ export default function Storefront({ tab }: { tab: Tab }) {
         </>
       )}
 
-      {toast && <div className="toast">{toast}</div>}
+      {toast && (
+        <div className="toast" role="status" aria-live="polite">
+          {toast}
+        </div>
+      )}
     </>
   )
 }

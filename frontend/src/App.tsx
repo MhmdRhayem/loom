@@ -175,10 +175,17 @@ export default function App() {
       setRecent([])
       return
     }
+    // Same staleness guard as the health effect below: this refires on every
+    // navigation, so two quick moves can otherwise apply in arrival order and leave
+    // the sidebar one navigation behind.
+    let cancelled = false
     api
       .conversations(12)
-      .then((res) => setRecent(res.conversations))
+      .then((res) => !cancelled && setRecent(res.conversations))
       .catch(() => {})
+    return () => {
+      cancelled = true
+    }
   }, [user, location])
 
   useEffect(() => {
@@ -379,6 +386,9 @@ export default function App() {
           {/* The cart page became a drawer on the storefront — keep old links working. */}
           <Route path="/storefront/cart" element={<Navigate to="/storefront" replace />} />
           <Route path="/storefront/orders" element={<Storefront tab="orders" />} />
+          {/* Anything else renders an empty main area otherwise, which reads as a
+              broken page rather than a wrong address. */}
+          <Route path="*" element={<Navigate to="/chat" replace />} />
           </Routes>
         </Suspense>
       </main>

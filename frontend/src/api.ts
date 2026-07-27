@@ -17,6 +17,7 @@ import type {
   OverviewResponse,
   Product,
   ProductChange,
+  ProductPayload,
   ProductsResponse,
   RoutingAnalyticsResponse,
   ShopOrder,
@@ -75,6 +76,14 @@ export interface StageEvent {
   eval_pass?: boolean | null
 }
 
+// The four frames /chat/stream can emit (see backend/api/routes.py). Declaring the
+// union means the parse below is cast once and every branch below it is typed.
+type StreamEvent =
+  | { type: 'token'; text: string }
+  | ({ type: 'stage' } & StageEvent)
+  | { type: 'done'; payload: ChatResponse }
+  | { type: 'error'; message?: string }
+
 /** POST /chat/stream — reports pipeline stages and answer tokens as they arrive,
  * resolves with the final (authoritative) reply. Abortable via `signal`. */
 async function chatStream(
@@ -111,10 +120,15 @@ async function chatStream(
       const chunk = buffer.slice(0, split).trim()
       buffer = buffer.slice(split + 2)
       if (!chunk.startsWith('data:')) continue
-      const evt = JSON.parse(chunk.slice(5))
-      if (evt.type === 'token') onToken?.(evt.text as string)
-      else if (evt.type === 'stage') onStage(evt as StageEvent)
-      else if (evt.type === 'done') result = evt.payload as ChatResponse
+      let evt: StreamEvent
+      try {
+        evt = JSON.parse(chunk.slice(5)) as StreamEvent
+      } catch {
+        continue // a truncated or malformed frame must not kill a live answer
+      }
+      if (evt.type === 'token') onToken?.(evt.text)
+      else if (evt.type === 'stage') onStage(evt)
+      else if (evt.type === 'done') result = evt.payload
       else if (evt.type === 'error')
         throw new ApiError(`chat failed: ${evt.message ?? 'unknown error'}`, 0)
     }
@@ -179,12 +193,13 @@ export const api = {
     post<CartResponse>('/shop/cart/decrement', { product_id: productId }),
   removeFromCart: (productId: string) =>
     post<CartResponse>('/shop/cart/remove', { product_id: productId }),
-  checkout: (newCard = false) => post<CheckoutResponse>('/shop/checkout', { new_card: newCard }),
+  checkout: (newCard = false, couponCode = '') =>
+    post<CheckoutResponse>('/shop/checkout', { new_card: newCard, coupon_code: couponCode }),
 
   // management (merchant: own shop; admin: all shops + users)
   manageProducts: () => get<{ shop: string | null; products: Product[] }>('/manage/products'),
-  createProduct: (body: Record<string, unknown>) => post<Product>('/manage/products', body),
-  updateProduct: (id: string, body: Record<string, unknown>) =>
+  createProduct: (body: ProductPayload) => post<Product>('/manage/products', body),
+  updateProduct: (id: string, body: Partial<ProductPayload>) =>
     put<Product>(`/manage/products/${encodeURIComponent(id)}`, body),
   deleteProduct: (id: string) =>
     del<{ deleted: boolean }>(`/manage/products/${encodeURIComponent(id)}`),
