@@ -432,7 +432,7 @@ async def _persist_turn(
     except Exception:  # noqa: BLE001 - persistence is best-effort
         logger.warning("turn persistence failed", exc_info=True)
 
-    # Phase 6 learning signal: fold each agent's verdict into its own per-category EMA score.
+    # Learning signal: fold each agent's verdict into its own per-category EMA score.
     # With per-agent verdicts, score each from its own verdict; otherwise (a turn-level outcome
     # such as a structural failure) attribute that single signal to every agent that ran.
     if agents and getattr(settings, "enable_learning", True):
@@ -472,10 +472,14 @@ async def record_feedback(
 
 
 async def run_dream(
-    *, db: Database | None, settings: Settings | None, owner_id: str, force: bool = False
+    *, db: Database | None, settings: Settings | None, owner_id: str | None, force: bool = False
 ) -> DreamOutcome:
-    """Run memory consolidation for an owner, when it's due or force is set."""
-    if db is None or settings is None or not settings.enable_dreaming:
+    """Run memory consolidation for an owner, when it's due or force is set.
+
+    owner_id is optional because memory is owner-scoped: with no identity resolver and
+    no explicit owner there is nothing to consolidate, so the run is a no-op.
+    """
+    if db is None or settings is None or not owner_id or not settings.enable_dreaming:
         return DreamOutcome(ran=False)
     if not force and not await should_dream(db.memory, db.dreams, owner_id, settings):
         return DreamOutcome(ran=False)

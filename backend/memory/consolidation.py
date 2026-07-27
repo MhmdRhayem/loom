@@ -45,7 +45,7 @@ async def should_dream(
         return datetime.now(timezone.utc) - last.started_at >= timedelta(
             hours=settings.dream_interval_hours
         )
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - a failed due-check just means "not due"
         logger.warning("should_dream check failed for %s", owner_id, exc_info=True)
         return False
 
@@ -106,7 +106,7 @@ async def consolidate(
             duration_ms=duration_ms,
             started_at=started,
         )
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - the tidy-up already happened; only the log is lost
         logger.warning("dream_run logging failed for %s", owner_id, exc_info=True)
 
     return {"merged": merged, "pruned": pruned, "duration_ms": duration_ms}

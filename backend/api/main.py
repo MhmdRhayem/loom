@@ -87,7 +87,7 @@ def create_app(
         redis_store: RedisStore | None = RedisStore(settings.redis_url)
         try:
             await redis_store.open()
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - Redis is optional; /health reports it
             logger.warning("Redis unavailable at startup: %s", exc)
             redis_store = None
         app.state.redis = redis_store

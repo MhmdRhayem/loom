@@ -17,8 +17,8 @@ jobs:
         run: pip install -r requirements-dev.txt
       - name: Lint
         run: |
-          ruff check backend demo tests scripts
-          ruff format --check backend demo tests scripts
+          ruff check backend demo tests scripts conftest.py
+          ruff format --check backend demo tests scripts conftest.py
       - name: Unit tests
         run: pytest tests -q
 

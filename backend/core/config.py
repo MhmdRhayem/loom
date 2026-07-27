@@ -64,7 +64,7 @@ class Settings:
     app_env: str = "development"
     log_level: str = "INFO"
     default_provider: str = "anthropic"
-    # Feature flags (Phase 7) — each gates one subsystem; flip any for ablation.
+    # Feature flags — each gates one subsystem; flip any off for an ablation run.
     enable_memory: bool = True  # Layer 2 auto-memory (load hints + extract)
     enable_evaluation: bool = True  # structural + LLM critic (+ retry)
     enable_learning: bool = True  # per-(agent,category) EMA scoring

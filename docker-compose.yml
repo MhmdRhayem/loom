@@ -8,7 +8,9 @@ services:
       POSTGRES_DB: multi_agent
     ports:
       # Host 5433 -> container 5432: avoids clashing with a native Postgres on 5432.
-      - "5433:5432"
+      # 127.0.0.1 prefix: these are dev services with default or absent credentials,
+      # and an unprefixed mapping publishes them to every interface on the machine.
+      - "127.0.0.1:5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql
     healthcheck:
@@ -21,7 +23,7 @@ services:
     image: redis:8-alpine
     container_name: maf-redis
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -36,7 +38,7 @@ services:
     container_name: maf-qdrant
     ports:
       # REST API (the Python client's default transport).
-      - "6333:6333"
+      - "127.0.0.1:6333:6333"
     volumes:
       - qdrant_data:/qdrant/storage
 

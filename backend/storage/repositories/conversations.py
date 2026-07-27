@@ -63,14 +63,16 @@ class ConversationRepository(Repository):
             await session.execute(
                 select(Conversation.id).where(Conversation.id == conversation_id).with_for_update()
             )
-            count = await session.scalar(
-                select(func.count())
-                .select_from(ConversationTurn)
-                .where(ConversationTurn.conversation_id == conversation_id)
+            # max + 1, not count + 1: counting reuses a number if a turn is ever deleted,
+            # which uq_conversation_turn would then reject. It is also an index scan.
+            highest = await session.scalar(
+                select(func.max(ConversationTurn.turn_number)).where(
+                    ConversationTurn.conversation_id == conversation_id
+                )
             )
             row = ConversationTurn(
                 conversation_id=conversation_id,
-                turn_number=int(count or 0) + 1,
+                turn_number=int(highest or 0) + 1,
                 user_message=user_message,
                 agent_name=agent_name,
                 query_category=query_category,
