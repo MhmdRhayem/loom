@@ -161,6 +161,11 @@ def search_faq(query: str) -> dict[str, Any] | None:
         for score, ref_id in hits
         if ref_id in faqs and score >= _MIN_FAQ_SCORE
     ]
+    if not results:
+        # Indexed points whose rows have since been deleted: every hit filtered out, so
+        # results[0] would raise. Returning None hands the caller its keyword fallback,
+        # which is what "retrieval is an upgrade, never an outage" has to mean here.
+        return None
     best = results[0]
     return {
         "query": query,
@@ -194,4 +199,6 @@ def search_products(query: str) -> dict[str, Any] | None:
         for score, ref_id in hits
         if (p := products.get(ref_id)) is not None
     ]
-    return {"query": query, "results": results}
+    # An empty list is a miss, not a result: the tool composes these as `retrieval or db`,
+    # so a truthy dict wrapping zero products would suppress the keyword fallback.
+    return {"query": query, "results": results} if results else None

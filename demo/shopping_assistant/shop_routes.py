@@ -18,6 +18,9 @@ class CartItemRequest(BaseModel):
 class CheckoutRequest(BaseModel):
     # Simulates switching to a working card when the seeded payment is declined.
     new_card: bool = False
+    # Optional promo code. Empty means no coupon; an invalid one fails the checkout
+    # rather than being dropped, so the price charged always matches the price quoted.
+    coupon_code: str = ""
 
 
 @shop_router.get("/products")
@@ -125,4 +128,4 @@ def cart_remove(payload: CartItemRequest, account: db.Account = Depends(current_
 @shop_router.post("/checkout")
 def checkout(payload: CheckoutRequest, account: db.Account = Depends(current_account)) -> dict:
     """Place an order from the signed-in customer's cart."""
-    return db.place_order(account.email, new_card=payload.new_card)
+    return db.place_order(account.email, new_card=payload.new_card, coupon_code=payload.coupon_code)

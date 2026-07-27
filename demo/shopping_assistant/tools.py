@@ -17,7 +17,9 @@ def product_db(query: str) -> dict[str, Any]:
 
 
 def price_api(product_id: str) -> dict[str, Any]:
-    """Look up the current price, active deal, and best coupon for a product id."""
+    """Look up the current price, active deal, and best coupon for a product id. The
+    coupon code is real and redeemable: the shopper enters it in the cart drawer at
+    checkout, so quote the code itself and not just the discounted total."""
     return db.get_price(product_id)
 
 
@@ -25,8 +27,11 @@ def price_api(product_id: str) -> dict[str, Any]:
 
 
 def style_engine(query: str) -> dict[str, Any]:
-    """Give size/fit and style recommendations for a shopper request."""
-    # Pure advice, not stored records — kept computed rather than backed by the store.
+    """Return the store's general sizing and styling guidance. This is house-wide advice,
+    not a per-item measurement lookup: it does not read the catalog, so do not present it
+    as specific to a named product without checking that product with product_db."""
+    # A fixed house guideline, not a model or a lookup. The store has no per-item size
+    # chart to serve, and the docstring says so rather than letting the agent imply one.
     return {
         "query": query,
         "recommended_size": "M",
@@ -111,18 +116,29 @@ def _user_tools(email: str | None) -> dict[str, Callable[..., Any]]:
 # --- merchant tools (shop_manager) --------------------------------------------
 #
 # Catalog management for the signed-in merchant. The owned shop is resolved fresh
-# from the DB at bind time (never taken from the model), and nothing here writes
+# from the DB on every call (never taken from the model), and nothing here writes
 # the catalog directly: every propose_* tool queues a pending product_changes row
 # that the merchant must approve or reject on the Products page.
 
 
 def _merchant_tools(email: str | None) -> dict[str, Callable[..., Any]]:
-    account = db.get_account(email) if email else None
-    shop = account.shop if account is not None and account.role == "merchant" else None
     denied = {"error": "Only a signed-in merchant can manage a shop."}
+
+    def _shop() -> str | None:
+        """The signed-in merchant's shop, resolved fresh from the DB (never from the model).
+
+        Called from inside the tool bodies rather than at bind time: binding runs inline
+        on the event loop (run_agent awaits nothing around it), so a synchronous query
+        here would block every other request, while a tool body already runs in
+        LangChain's executor. Reading per call also means a revoked merchant role takes
+        effect immediately instead of at the next turn.
+        """
+        account = db.get_account(email) if email else None
+        return account.shop if account is not None and account.role == "merchant" else None
 
     def list_shop_products() -> dict[str, Any]:
         """List every product in the merchant's own shop: id, name, price, stock, rating, deal."""
+        shop = _shop()
         if not shop:
             return denied
         return {"shop": shop, "products": db.list_products(shop=shop)}
@@ -133,6 +149,7 @@ def _merchant_tools(email: str | None) -> dict[str, Callable[..., Any]]:
         """Propose adding a new product to the merchant's shop. The change is queued as
         PENDING and applied only after the merchant approves it on the Products page —
         always tell the merchant that."""
+        shop = _shop()
         if not shop:
             return denied
         payload = {
@@ -156,6 +173,7 @@ def _merchant_tools(email: str | None) -> dict[str, Callable[..., Any]]:
     ) -> dict[str, Any]:
         """Propose changing one of the merchant's own products; pass only the fields to
         change. Queued as PENDING until the merchant approves it on the Products page."""
+        shop = _shop()
         if not shop:
             return denied
         fields = {
@@ -174,12 +192,14 @@ def _merchant_tools(email: str | None) -> dict[str, Callable[..., Any]]:
     def propose_product_delete(product_id: str) -> dict[str, Any]:
         """Propose removing one of the merchant's own products from the catalog.
         Queued as PENDING until the merchant approves it on the Products page."""
+        shop = _shop()
         if not shop:
             return denied
         return db.create_product_change(shop, "delete", product_id, {})
 
     def list_pending_changes() -> dict[str, Any]:
         """The merchant's queued product changes still awaiting approval or rejection."""
+        shop = _shop()
         if not shop:
             return denied
         return {"shop": shop, "pending": db.list_product_changes(shop, "pending")}
@@ -216,7 +236,7 @@ def get_tools(names: Sequence[str], owner_id: str | None = None) -> list[Callabl
     """Map an agent's declared tool names to callables, binding the signed-in customer
     (owner_id = account email) into the tools that touch customer records."""
     tools = {**TOOLS, **_user_tools(owner_id)}
-    # Binding merchant tools costs an account lookup, so only pay it when asked for.
+    # Only the merchant agent declares these, so don't build the five closures otherwise.
     if _MERCHANT_TOOL_NAMES & set(names):
         tools.update(_merchant_tools(owner_id))
     return [tools[name] for name in names if name in tools]

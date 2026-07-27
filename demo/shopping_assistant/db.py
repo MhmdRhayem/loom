@@ -3,6 +3,8 @@ from __future__ import annotations
 import functools
 import hashlib
 import json
+import logging
+import secrets
 from datetime import date, timedelta
 from typing import Any
 
@@ -18,11 +20,14 @@ from sqlalchemy import (
     func,
     select,
     text,
+    update,
 )
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
 from backend.core.config import Settings
+
+logger = logging.getLogger(__name__)
 
 SCHEMA_NAME = "shop"
 
@@ -310,6 +315,7 @@ def get_account(email: str) -> Account | None:
         with SessionLocal() as session:
             return session.get(Account, email)
     except Exception:  # noqa: BLE001 - unseeded schema / unreachable DB -> treat as no account
+        logger.warning("account lookup failed for %s", email, exc_info=True)
         return None
 
 
@@ -416,6 +422,9 @@ def _cart_snapshot(session: Session, cart_id: str) -> tuple[list[dict[str, Any]]
     return cart, subtotal, stock_ok
 
 
+CART_ACTIONS = ("view", "add", "decrement", "remove")
+
+
 def cart_ops(action: str, item_id: str, cart_id: str) -> dict[str, Any]:
     """Inspect or modify one customer's cart (view | add | decrement | remove) and report stock.
 
@@ -423,6 +432,7 @@ def cart_ops(action: str, item_id: str, cart_id: str) -> dict[str, Any]:
     line); remove deletes the whole line. cart_id is the account email — every
     customer has their own cart, never a shared one.
     """
+    error: str | None = None
     with SessionLocal.begin() as session:
         if action == "add" and item_id:
             if session.get(Product, item_id) is None:
@@ -450,16 +460,28 @@ def cart_ops(action: str, item_id: str, cart_id: str) -> dict[str, Any]:
             line = session.get(CartItem, {"cart_id": cart_id, "product_id": item_id})
             if line is not None:
                 session.delete(line)
+        elif action != "view":
+            # An unknown verb, or a mutating verb with no product id, changed nothing.
+            # Without this the model gets a success-shaped snapshot echoing its own
+            # request back and reports the edit as done.
+            error = (
+                f"Action {action!r} needs a product id."
+                if action in CART_ACTIONS
+                else f"Unknown cart action {action!r}; use one of {', '.join(CART_ACTIONS)}."
+            )
 
         session.flush()
         cart, subtotal, stock_ok = _cart_snapshot(session, cart_id)
-    return {
+    result: dict[str, Any] = {
         "action": action,
         "item_id": item_id,
         "cart": cart,
         "subtotal": subtotal,
         "stock_ok": stock_ok,
     }
+    if error:
+        result["error"] = error
+    return result
 
 
 def get_payment_status(cart_id: str) -> dict[str, Any]:
@@ -482,11 +504,31 @@ def get_payment_status(cart_id: str) -> dict[str, Any]:
 
 
 @_retry_on_id_collision
-def place_order(email: str, new_card: bool = False) -> dict[str, Any]:
+def _resolve_coupon(
+    session: Session, code: str, cart: list[dict[str, Any]], subtotal: float
+) -> tuple[int, str | None]:
+    """The discount a code is worth on this cart: (discount_pct, error).
+
+    Same eligibility rule get_price quotes with, applied to the whole cart rather than
+    one product, so a discount the assistant quotes is the discount checkout charges.
+    """
+    coupon = session.get(Coupon, code.strip().upper())
+    if coupon is None:
+        return 0, f"No coupon with code '{code.strip()}'."
+    if subtotal < coupon.min_subtotal:
+        return 0, f"{coupon.code} needs a subtotal of at least ${coupon.min_subtotal:.2f}."
+    if coupon.product_id and not any(line["id"] == coupon.product_id for line in cart):
+        return 0, f"{coupon.code} only applies to {coupon.product_id}, which is not in your cart."
+    return coupon.discount_pct, None
+
+
+def place_order(email: str, new_card: bool = False, coupon_code: str = "") -> dict[str, Any]:
     """Turn the customer's cart into a placed order (the storefront checkout).
 
     A declined payment blocks checkout unless new_card is set, which simulates the
     customer switching to a working card (the payment row flips to approved).
+    An invalid coupon fails the checkout rather than being ignored: silently charging
+    full price after the assistant quoted a discount is the worse outcome.
     """
     with SessionLocal.begin() as session:
         cart, subtotal, stock_ok = _cart_snapshot(session, email)
@@ -494,6 +536,13 @@ def place_order(email: str, new_card: bool = False) -> dict[str, Any]:
             return {"placed": False, "error": "Your cart is empty."}
         if not stock_ok:
             return {"placed": False, "error": "An item in your cart is out of stock."}
+
+        discount_pct = 0
+        if coupon_code.strip():
+            discount_pct, coupon_error = _resolve_coupon(session, coupon_code, cart, subtotal)
+            if coupon_error:
+                return {"placed": False, "error": coupon_error}
+        total = round(subtotal * (1 - discount_pct / 100), 2)
 
         payment = session.get(Payment, email)
         if payment is not None and payment.payment_status != "approved":
@@ -520,7 +569,7 @@ def place_order(email: str, new_card: bool = False) -> dict[str, Any]:
                 tracking_number=None,
                 estimated_delivery=estimated,
                 placed_on=placed_on,
-                total=subtotal,
+                total=total,
             )
         )
         for line in cart:
@@ -536,36 +585,55 @@ def place_order(email: str, new_card: bool = False) -> dict[str, Any]:
         return {
             "placed": True,
             "order_id": order_id,
-            "total": subtotal,
+            "subtotal": subtotal,
+            "coupon_code": coupon_code.strip().upper() or None,
+            "discount_pct": discount_pct,
+            "total": total,
             "estimated_delivery": estimated,
         }
 
 
+ACCOUNT_ACTIONS = ("profile", "reset_password", "update_address")
+
+
 def account_action(action: str, email: str = "", new_address: str = "") -> dict[str, Any]:
-    """Account help: profile lookup, password reset, or address update."""
+    """Account help: profile lookup, password reset, or address update.
+
+    Failures come back under "error", the same key every other tool here uses, so the
+    model does not have to notice that a success-shaped payload has the word "error"
+    buried inside its result value.
+    """
     with SessionLocal.begin() as session:
         account = session.get(Account, email)
+        if account is None:
+            return {"action": action, "email": email, "error": "No account with that email."}
         if action == "profile":
-            result: Any = (
-                {"name": account.name, "address": account.address} if account else "not_found"
-            )
+            result: Any = {"name": account.name, "address": account.address}
         elif action == "reset_password":
-            result = "ok" if account else "not_found"
+            result = "ok"
         elif action == "update_address":
-            if account is None:
-                result = "not_found"
-            elif not new_address.strip():
-                result = "error: pass the new address in new_address"
-            else:
-                account.address = new_address.strip()
-                result = {"name": account.name, "address": account.address}
+            if not new_address.strip():
+                return {
+                    "action": action,
+                    "email": email,
+                    "error": "Pass the full new address in new_address.",
+                }
+            account.address = new_address.strip()
+            result = {"name": account.name, "address": account.address}
         else:
-            result = f"error: unknown action '{action}'"
+            return {
+                "action": action,
+                "email": email,
+                "error": f"Unknown action '{action}'; use one of {', '.join(ACCOUNT_ACTIONS)}.",
+            }
 
     reset_link = None
-    if action == "reset_password" and result == "ok":
-        token = hashlib.sha1(email.encode()).hexdigest()[:10]
-        reset_link = f"https://shop.example.com/reset/{token}"
+    if action == "reset_password":
+        # Simulated: this link is never stored, mailed, or redeemable, and nothing reads
+        # it back. A real implementation would persist a hashed single-use token with an
+        # expiry. It is random rather than derived from the email so that nothing in a
+        # transcript looks like a guessable credential.
+        reset_link = f"https://shop.example.com/reset/{secrets.token_urlsafe(16)}"
 
     return {"action": action, "email": email, "result": result, "reset_link": reset_link}
 
@@ -623,6 +691,7 @@ def _safe(query) -> list[dict[str, Any]]:
         with SessionLocal() as session:
             return query(session)
     except Exception:  # noqa: BLE001 - unseeded schema / unreachable DB -> empty, never 500
+        logger.warning("product listing failed", exc_info=True)
         return []
 
 
@@ -684,6 +753,7 @@ def catalog_facets() -> dict[str, Any]:
             price_min = session.scalar(select(func.min(Product.price)))
             price_max = session.scalar(select(func.max(Product.price)))
     except Exception:  # noqa: BLE001 - unseeded schema -> empty facets, never 500
+        logger.warning("catalog facet lookup failed", exc_info=True)
         return {"shops": [], "categories": [], "price_min": 0.0, "price_max": 0.0}
     return {
         "shops": shops,
@@ -700,6 +770,7 @@ def get_product_card(product_id: str) -> dict[str, str] | None:
             p = session.get(Product, product_id)
             return {"name": p.name, "category": p.category} if p else None
     except Exception:  # noqa: BLE001 - unseeded schema -> generic image
+        logger.warning("product image lookup failed for %s", product_id, exc_info=True)
         return None
 
 
@@ -815,10 +886,25 @@ def _update_product_in(
 
 
 def _delete_product_in(session: Session, product_id: str, shop: str | None) -> dict[str, Any]:
-    """Delete a product row inside an open transaction."""
+    """Delete a product row inside an open transaction; refuse once it has sold.
+
+    order_items carries no foreign key and every historical read inner-joins Product, so
+    deleting a sold product silently drops those lines out of the customer's order history
+    and the sales rollup while Order.total stays put. Worse, _next_product_id is max
+    suffix + 1, so the id can be reissued and a new product inherits the old order lines.
+    Delisting with in_stock=false is the reversible operation the caller actually wants.
+    """
     product = session.get(Product, product_id)
     if product is None or (shop is not None and product.shop != shop):
         return {"error": f"No product {product_id} in your shop."}
+    sold = session.scalar(
+        select(func.count()).select_from(OrderItem).where(OrderItem.product_id == product_id)
+    )
+    if sold:
+        return {
+            "error": f"{product.name} appears on {sold} past order line(s), so deleting it "
+            "would rewrite order history. Set it out of stock to delist it instead."
+        }
     name = product.name
     session.delete(product)
     return {"deleted": True, "product_id": product_id, "name": name}
@@ -856,6 +942,7 @@ def shop_stats(shop: str | None) -> dict[str, Any]:
                 stmt = stmt.where(Product.shop == shop)
             total, in_stock, avg_rating, avg_price = session.execute(stmt).one()
     except Exception:  # noqa: BLE001 - unseeded schema -> empty stats, never 500
+        logger.warning("shop stats query failed", exc_info=True)
         return {"products": 0, "in_stock": 0, "avg_rating": None, "avg_price": None}
     return {
         "products": int(total or 0),
@@ -899,6 +986,7 @@ def shop_sales(shop: str | None) -> dict[str, Any]:
                 stmt = stmt.where(Product.shop == shop)
             rows = session.execute(stmt).all()
     except Exception:  # noqa: BLE001 - unseeded schema -> empty dashboard, never 500
+        logger.warning("sales rollup query failed", exc_info=True)
         return empty
 
     revenue, units = 0.0, 0
@@ -1100,10 +1188,23 @@ def update_account_role(email: str, role: str, shop: str | None) -> bool:
 
 
 def delete_account(email: str) -> bool:
-    """Remove an account. False if no such account."""
+    """Remove an account and everything personal keyed to its email. False if no account.
+
+    Nothing in this schema declares a foreign key, so nothing cascades on its own. Cart
+    lines, payment state and tickets are the account's private working state and go with
+    it; orders are revenue and stay, with the email rewritten to a stable pseudonym so the
+    merchant rollup still groups them while nothing ties them to a live account. Without
+    the rewrite, register() only checks that the account row is gone, so the next person
+    to claim the address would inherit the previous owner's purchase history.
+    """
     with SessionLocal.begin() as session:
         account = session.get(Account, email)
         if account is None:
             return False
+        session.execute(delete(CartItem).where(CartItem.cart_id == email))
+        session.execute(delete(Payment).where(Payment.cart_id == email))
+        session.execute(delete(Ticket).where(Ticket.email == email))
+        tombstone = f"deleted-{hashlib.sha256(email.encode()).hexdigest()[:12]}@invalid"
+        session.execute(update(Order).where(Order.email == email).values(email=tombstone))
         session.delete(account)
         return True

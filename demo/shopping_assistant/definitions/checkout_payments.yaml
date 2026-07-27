@@ -19,7 +19,9 @@ capabilities:
   - stock_check
   - cart_ops
   - checkout_support
-  - payment_methods
+  # Not "payment_methods": that is the policy question support_concierge owns, and the
+  # description above explicitly disclaims it. Both strings reach the router.
+  - payment_troubleshooting
   - promo_apply
   - billing_inquiry
 
@@ -39,4 +41,3 @@ eval_rubric:
 judge_sample_rate: 1.0   # money path -> always judged
 
 fallback_agent: support_concierge
-memory_scope: owner
