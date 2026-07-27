@@ -92,26 +92,30 @@ async def run_agent(
         return AgentRun(f"(cannot run: agent '{name}' is not available)")
 
     defn = registry.get(name)
-    tools = list(tool_provider(defn.tools))
-    # Offer peer tools whenever we can still go one level deeper. Any allowed agent
-    # can ask any allowed peer; hidden agents never get an ask_<peer> tool at all.
-    # Peer runs report back through sub_runs so their tokens/tool calls are counted.
     sub_runs: list[AgentRun] = []
-    if depth + 1 < settings.max_delegation_depth:
-        tools = tools + _ask_peer_tools(
-            registry,
-            settings,
-            tool_provider,
-            depth + 1,
-            sub_runs,
-            exclude=name,
-            allowed_agents=allowed_agents,
-        )
-
-    agent = build_agent(defn, settings, tools)
-    base = [*(history or []), {"role": "user", "content": query}]
-    messages = build_messages(base, hints) if hints else base
+    # Setup is inside the try with the call, not before it: binding tools can reach the
+    # consumer's store and build_agent resolves the model, which raises on a missing API
+    # key or a model id the provider rejects. Left outside, either would escape the
+    # gather in execute_agents and take down a turn this function promises to survive.
     try:
+        tools = list(tool_provider(defn.tools))
+        # Offer peer tools whenever we can still go one level deeper. Any allowed agent
+        # can ask any allowed peer; hidden agents never get an ask_<peer> tool at all.
+        # Peer runs report back through sub_runs so their tokens/tool calls are counted.
+        if depth + 1 < settings.max_delegation_depth:
+            tools = tools + _ask_peer_tools(
+                registry,
+                settings,
+                tool_provider,
+                depth + 1,
+                sub_runs,
+                exclude=name,
+                allowed_agents=allowed_agents,
+            )
+
+        agent = build_agent(defn, settings, tools)
+        base = [*(history or []), {"role": "user", "content": query}]
+        messages = build_messages(base, hints) if hints else base
         result = await agent.ainvoke({"messages": messages})
         msgs = result["messages"]
         tool_calls = _tool_calls(msgs) + [c for r in sub_runs for c in r.tool_calls]
