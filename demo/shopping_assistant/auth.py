@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import logging
 import os
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -13,9 +14,17 @@ from pydantic import BaseModel
 
 from . import db
 
+logger = logging.getLogger(__name__)
+
 # Signing secret for the demo's JWTs. Override in .env for anything beyond local dev.
+# `or`, not a get() default: an env file carrying `AUTH_SECRET=` hands back "", and an
+# empty key makes PyJWT raise InvalidKeyError, which is not an InvalidTokenError and so
+# escapes the handler in current_email — turning every login into a 500 instead of a 401.
 # The fallback is >=32 bytes so HS256 doesn't run below its recommended key length.
-_SECRET = os.environ.get("AUTH_SECRET", "loom-demo-dev-secret-do-not-use-in-production")
+_DEV_SECRET = "loom-demo-dev-secret-do-not-use-in-production"
+_SECRET = os.environ.get("AUTH_SECRET") or _DEV_SECRET
+if _SECRET == _DEV_SECRET:
+    logger.warning("AUTH_SECRET is unset; signing demo JWTs with the public dev default")
 _ALGORITHM = "HS256"
 _TOKEN_TTL = timedelta(hours=24)
 _PBKDF2_ITERATIONS = 600_000  # OWASP's 2024+ recommendation for pbkdf2-sha256
@@ -108,7 +117,9 @@ async def resolve_identity(request: Request) -> str:
     email = current_email(request)
     if await run_in_threadpool(db.get_account, email) is None:
         raise HTTPException(status_code=401, detail="account no longer exists")
-    if request.url.path.startswith("/chat"):
+    # /dream shares the ceiling: it is the only other endpoint that spends model calls,
+    # and a standard-tier consolidation pass is more expensive than a chat turn.
+    if request.url.path.startswith(("/chat", "/dream")):
         await _check_chat_rate_limit(request, email)
     return email
 
@@ -235,7 +246,7 @@ async def _record_failure(request: Request, email: str) -> None:
         key = f"login_fail:{email}"
         await client.incr(key)
         await client.expire(key, _FAILURE_WINDOW_SECONDS)
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - a lost failure count must not break the login
         pass
 
 
@@ -245,7 +256,7 @@ async def _clear_failures(request: Request, email: str) -> None:
         return
     try:
         await client.delete(f"login_fail:{email}")
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - a stale lockout counter expires on its own TTL
         pass
 
 
