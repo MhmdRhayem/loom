@@ -33,4 +33,3 @@ eval_rubric:
 judge_sample_rate: 1.0
 
 fallback_agent: human_handoff   # terminal sink node, not an agent
-memory_scope: owner

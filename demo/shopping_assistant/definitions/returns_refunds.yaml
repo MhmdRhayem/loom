@@ -26,4 +26,3 @@ eval_rubric:
 judge_sample_rate: 1.0   # irreversible money path -> always judged
 
 fallback_agent: support_concierge
-memory_scope: owner

@@ -15,9 +15,6 @@ from backend.storage.models import (
     TurnAgent,
 )
 
-# Memory rows that are still live (never expire, or not yet expired).
-_LIVE_MEMORY = (AutoMemory.expires_at.is_(None)) | (AutoMemory.expires_at > func.now())
-
 
 def _f(value: Any) -> float | None:
     """Cast a Decimal/None aggregate to a plain float (or None)."""
@@ -68,9 +65,7 @@ class AnalyticsRepository(Repository):
                     )
                 )
             ).one()
-            memories = await s.scalar(
-                select(func.count()).select_from(AutoMemory).where(_LIVE_MEMORY)
-            )
+            memories = await s.scalar(select(func.count()).select_from(AutoMemory))
             dreams = await s.scalar(select(func.count()).select_from(DreamRun))
 
         turns = int(turn.turns or 0)
@@ -182,14 +177,9 @@ class AnalyticsRepository(Repository):
         ]
 
     async def memory_counts(self, owner_id: str | None = None) -> list[dict[str, Any]]:
-        """Live memory count per owner (most memories first)."""
+        """Memory count per owner (most memories first)."""
         key = AutoMemory.owner_id.label("owner_id")
-        stmt = (
-            select(key, func.count().label("count"))
-            .where(_LIVE_MEMORY)
-            .group_by(key)
-            .order_by(func.count().desc())
-        )
+        stmt = select(key, func.count().label("count")).group_by(key).order_by(func.count().desc())
         if owner_id:
             stmt = stmt.where(AutoMemory.owner_id == owner_id)
         async with self._session() as s:

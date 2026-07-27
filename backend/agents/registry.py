@@ -32,7 +32,6 @@ class AgentDefinition:
     max_tokens: int = 1024
     eval_rubric: tuple[str, ...] = ()
     judge_sample_rate: float = 1.0
-    memory_scope: str = "owner"
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> AgentDefinition:
@@ -46,7 +45,6 @@ class AgentDefinition:
             max_tokens=int(data.get("max_tokens", 1024)),
             eval_rubric=tuple(data.get("eval_rubric") or ()),
             judge_sample_rate=float(data.get("judge_sample_rate", 1.0)),
-            memory_scope=str(data.get("memory_scope", "owner")),
         )
 
 

@@ -56,7 +56,6 @@ class AgentInfo(BaseModel):
     eval_rubric: list[str] = Field(default_factory=list)
     judge_sample_rate: float
     fallback_agent: str
-    memory_scope: str
 
 
 class AgentsResponse(BaseModel):

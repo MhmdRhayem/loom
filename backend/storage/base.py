@@ -35,6 +35,16 @@ _SCHEMA_PATCHES = (
     " AND (a.updated_at, a.id) < (b.updated_at, b.id)",
     "DROP INDEX IF EXISTS ix_auto_memory_owner_topic",
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_auto_memory_owner_topic ON auto_memory (owner_id, topic)",
+    # Memory expiry was never wired to a writer: every row had expires_at NULL, so the
+    # column and its three "still live" predicates only ever cost query planning.
+    "ALTER TABLE auto_memory DROP COLUMN IF EXISTS expires_at",
+    # No query filters or groups on conversation_turns.agent_name (per-agent aggregates
+    # all read turn_agents), and the owner index is superseded by the composite that
+    # also covers the ORDER BY created_at DESC on the conversation list.
+    "DROP INDEX IF EXISTS ix_turns_agent_name",
+    "DROP INDEX IF EXISTS ix_conversations_owner",
+    "CREATE INDEX IF NOT EXISTS ix_conversations_owner_created"
+    " ON conversations (owner_id, created_at)",
 )
 
 
@@ -64,19 +74,21 @@ class Database:
         await db.close()
     """
 
+    # One repository per area of the schema, bound in open(). Declared rather than
+    # pre-assigned None so the annotations stay true: reaching one before open() is an
+    # AttributeError naming the attribute, instead of a None sneaking downstream.
+    conversations: ConversationRepository
+    memory: MemoryRepository
+    performance: PerformanceRepository
+    dreams: DreamRepository
+    analytics: AnalyticsRepository
+
     def __init__(self, dsn: str, pool_size: int = 5, max_overflow: int = 5) -> None:
         self._dsn = _normalize_dsn(dsn)
         self._pool_size = pool_size
         self._max_overflow = max_overflow
         self._engine: AsyncEngine | None = None
         self._sessionmaker: async_sessionmaker[AsyncSession] | None = None
-
-        # Set in open(); one repository per area of the schema.
-        self.conversations: ConversationRepository = None  # type: ignore[assignment]
-        self.memory: MemoryRepository = None  # type: ignore[assignment]
-        self.performance: PerformanceRepository = None  # type: ignore[assignment]
-        self.dreams: DreamRepository = None  # type: ignore[assignment]
-        self.analytics: AnalyticsRepository = None  # type: ignore[assignment]
 
     async def open(self) -> None:
         if self._engine is not None:
@@ -132,8 +144,10 @@ class Database:
         self._sessionmaker = None
 
 
-# Imported for the type hints above; placed at the bottom to avoid the
-# circular import at module load time.
+# Needed at runtime by the constructor calls in open(), not just by the annotations
+# above — do not delete these under `from __future__ import annotations`. They sit at
+# the bottom because each repository module imports Repository back from this one, so a
+# top-of-file import would be circular.
 from backend.storage.repositories.analytics import AnalyticsRepository  # noqa: E402
 from backend.storage.repositories.conversations import ConversationRepository  # noqa: E402
 from backend.storage.repositories.dreams import DreamRepository  # noqa: E402

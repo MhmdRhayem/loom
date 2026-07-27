@@ -35,4 +35,3 @@ eval_rubric:
 judge_sample_rate: 0.5
 
 fallback_agent: catalog_advisor
-memory_scope: owner

@@ -98,7 +98,6 @@ export interface AgentInfo {
   eval_rubric: string[]
   judge_sample_rate: number
   fallback_agent: string
-  memory_scope: string
 }
 
 export interface AgentsResponse {
@@ -280,6 +279,9 @@ export interface CartResponse {
 export interface CheckoutResponse {
   placed: boolean
   order_id?: string
+  subtotal?: number
+  coupon_code?: string | null
+  discount_pct?: number
   total?: number
   estimated_delivery?: string
   error?: string
@@ -288,6 +290,19 @@ export interface CheckoutResponse {
 }
 
 // --- management (merchant + admin, demo manage_routes.py) ---
+
+// Mirrors ProductCreate in manage_routes.py. Typed rather than Record<string, unknown>
+// because Pydantic ignores unknown keys: a misspelled field would typecheck here, be
+// dropped server-side, and still come back reported as saved.
+export interface ProductPayload {
+  name: string
+  price: number
+  category?: string
+  description?: string
+  deal?: string | null
+  in_stock?: boolean
+  shop?: string | null
+}
 
 export interface ShopStats {
   products: number

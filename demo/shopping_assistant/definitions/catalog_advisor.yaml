@@ -37,4 +37,3 @@ eval_rubric:
 judge_sample_rate: 0.4
 
 fallback_agent: support_concierge
-memory_scope: owner

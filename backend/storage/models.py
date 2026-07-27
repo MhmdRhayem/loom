@@ -28,7 +28,10 @@ class Base(DeclarativeBase):
 
 class Conversation(Base):
     __tablename__ = "conversations"
-    __table_args__ = (Index("ix_conversations_owner", "owner_id"),)
+    # Composite, not owner_id alone: the only query here is "this owner's conversations,
+    # newest first, limit N", and the second column lets Postgres walk the B-tree
+    # backwards instead of sorting every row the owner has.
+    __table_args__ = (Index("ix_conversations_owner_created", "owner_id", "created_at"),)
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
@@ -57,8 +60,9 @@ class ConversationTurn(Base):
     __table_args__ = (
         # The unique constraint's index leads on conversation_id, so it also serves
         # every by-conversation lookup — no separate single-column index needed.
+        # Nothing filters or groups on agent_name here either: every per-agent
+        # aggregate reads turn_agents, so that column is deliberately unindexed too.
         UniqueConstraint("conversation_id", "turn_number", name="uq_conversation_turn"),
-        Index("ix_turns_agent_name", "agent_name"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(always=False), primary_key=True)
@@ -151,7 +155,6 @@ class AutoMemory(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
-    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class DreamRun(Base):

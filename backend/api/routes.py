@@ -55,6 +55,9 @@ async def health(request: Request) -> HealthResponse:
     """Liveness and dependency check. Reports component status, never raises."""
     components: dict[str, str] = {}
 
+    # The component values are a fixed vocabulary, never the driver's message: this
+    # endpoint is unauthenticated, and a psycopg or redis failure string carries the
+    # host, port, user and the server's own error text. The log keeps the detail.
     redis_store = getattr(request.app.state, "redis", None)
     if redis_store is None:
         components["redis"] = "disabled"
@@ -62,8 +65,9 @@ async def health(request: Request) -> HealthResponse:
         try:
             await redis_store.client.ping()
             components["redis"] = "ok"
-        except Exception as exc:  # noqa: BLE001 - health must never throw
-            components["redis"] = f"error: {exc}"
+        except Exception:  # noqa: BLE001 - health must never throw
+            logger.warning("redis health check failed", exc_info=True)
+            components["redis"] = "error"
 
     db = getattr(request.app.state, "db", None)
     if db is None:
@@ -72,8 +76,9 @@ async def health(request: Request) -> HealthResponse:
         try:
             await db.ping()
             components["postgres"] = "ok"
-        except Exception as exc:  # noqa: BLE001 - health must never throw
-            components["postgres"] = f"error: {exc}"
+        except Exception:  # noqa: BLE001 - health must never throw
+            logger.warning("postgres health check failed", exc_info=True)
+            components["postgres"] = "error"
 
     status = "ok" if all(v in ("ok", "disabled") for v in components.values()) else "degraded"
     return HealthResponse(status=status, components=components)
@@ -101,7 +106,6 @@ async def agents(request: Request) -> AgentsResponse:
             eval_rubric=list(defn.eval_rubric),
             judge_sample_rate=defn.judge_sample_rate,
             fallback_agent=defn.fallback_agent,
-            memory_scope=defn.memory_scope,
         )
         for defn in registry.all()
         if allowed is None or defn.name in allowed
@@ -211,11 +215,14 @@ async def feedback(request: Request, payload: FeedbackRequest) -> FeedbackRespon
 
 
 @router.post("/dream", response_model=DreamResponse)
-async def dream(request: Request, owner_id: str, force: bool = False) -> DreamResponse:
+async def dream(
+    request: Request, owner_id: str | None = None, force: bool = False
+) -> DreamResponse:
     """Run memory consolidation for an owner, when it's due or force is set.
 
     With an identity resolver configured, you can only dream for yourself —
-    the query parameter is overridden by the verified identity.
+    the query parameter is overridden by the verified identity, so it is optional
+    (requiring it would 422 the caller for a value that is then discarded).
     """
     owner_id = await resolve_owner(request, owner_id)
     outcome = await service.run_dream(
