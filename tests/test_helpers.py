@@ -1,7 +1,7 @@
 """Small pure helpers: config env parsing, title truncation, prompt assembly."""
 
 from backend.core.config import _csv, _flag
-from backend.core.prompt_builder import build_messages, message_text
+from backend.core.prompt_builder import build_messages, build_system_prompt, message_text
 from backend.storage.repositories.analytics import _truncate
 
 
@@ -55,3 +55,24 @@ def test_build_messages_inserts_hints_before_latest_message():
 def test_build_messages_without_context_is_passthrough():
     base = [{"role": "user", "content": "hi"}]
     assert build_messages(base, []) == base
+
+
+def test_system_prompt_carries_the_definition(monkeypatch):
+    # Layer 1: the YAML definition becomes the cache-stable prompt prefix.
+    prompt = build_system_prompt(
+        {
+            "name": "catalog_advisor",
+            "description": "Finds products and compares prices.",
+            "capabilities": ["search the catalog", "compare prices"],
+        }
+    )
+    assert "You are the catalog_advisor agent." in prompt
+    assert "Finds products and compares prices." in prompt
+    assert "- search the catalog" in prompt
+    assert "Operating rules:" in prompt  # always present, definition or not
+
+
+def test_system_prompt_tolerates_a_bare_definition():
+    prompt = build_system_prompt({})
+    assert prompt.startswith("You are the agent agent.")
+    assert "Capabilities:" not in prompt
