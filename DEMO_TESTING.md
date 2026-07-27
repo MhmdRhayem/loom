@@ -19,7 +19,7 @@ docker compose up -d                                    # Postgres :5433 + Redis
 .\.venv\Scripts\python.exe -m demo.shopping_assistant.seed   # shop data + semantic index (idempotent)
 
 # Backend (keep this terminal open) — .env already has OPENAI_API_KEY + DEFAULT_PROVIDER=openai
-.\.venv\Scripts\python.exe -m uvicorn --env-file .env demo.shopping_assistant.app:app --reload
+.\.venv\Scripts\python.exe scripts\serve.py
 
 # Frontend (second terminal)
 cd frontend
@@ -245,7 +245,7 @@ stop the backend, then restart it with a flag off, e.g.:
 
 ```powershell
 $env:ENABLE_MEMORY = "false"
-.\.venv\Scripts\python.exe -m uvicorn --env-file .env demo.shopping_assistant.app:app --reload
+.\.venv\Scripts\python.exe scripts\serve.py
 ```
 
 Re-run Scenario E — memory should no longer work, everything else unchanged. Same idea with
@@ -280,11 +280,16 @@ The privacy layer: every account only ever sees its own data, and the enforcemen
 1. **Sign in** (or use the **Create account** tab on the login page to register a fresh user).
 2. Storefront → products → **Add to cart** on anything in stock; a toast confirms it and
    the header's cart badge counts up. Open the **cart drawer** and try the **+/− steppers**.
-3. In the drawer → **Checkout**. As mohammad the first attempt fails with the seeded
+3. Ask the assistant *"is there a coupon for the Leather Ankle Boots?"* — it answers with a
+   real code (`SHOES25`). Type that code into the drawer's **promo code** field.
+4. In the drawer → **Checkout**. As mohammad the first attempt fails with the seeded
    *declined — card_expired* payment; click **Use a different card** and it goes through.
-4. You get a new order id (ORD-1007+). Check the orders tab, then ask the assistant
-   *"where is my order ORD-100X?"* — the order you just placed is real, tracked data.
-5. Bonus: five wrong passwords for the same email within ten minutes → login answers
+5. You get a new order id (ORD-1007+) and the success line shows the discount actually
+   applied (`SHOES25, -25% off $…`) — the code the assistant quoted is the price charged.
+   A wrong or ineligible code fails the checkout with a reason instead of quietly charging
+   full price. Check the orders tab, then ask the assistant *"where is my order ORD-100X?"*
+   — the order you just placed is real, tracked data.
+6. Bonus: five wrong passwords for the same email within ten minutes → login answers
    **429 too many failed attempts** (Redis-backed rate limiting).
 
 To produce the thesis's benchmark numbers (routing accuracy, eval scores, latency, tokens):
@@ -381,7 +386,7 @@ Milvus/Chroma/Weaviate/pgvector is documented in [VECTOR_DB_CHOICE.md](VECTOR_DB
 
 ## Troubleshooting
 
-- **Backend won't start / async errors on Windows:** always run uvicorn **with `--reload`** (works around the Proactor event-loop issue) and **with `--env-file .env`** (env vars aren't loaded automatically).
+- **Backend starts but `/health` says `postgres: disabled`:** you ran a bare `uvicorn` command. On Windows uvicorn picks the ProactorEventLoop unless it is supervising a subprocess, and async psycopg refuses that loop, so the app boots with Postgres unreachable and serves every request with persistence, memory, learning and analytics silently off. Use `python scripts/serve.py`, which hands uvicorn a selector loop. (`uvicorn --reload` also happens to work, because `--reload` flips uvicorn's own loop choice, but do not rely on a dev flag for this.) The launcher also loads `.env` for you.
 - **`401` from `/chat`, `/shop/orders`, or `/conversations`:** you're not signed in (or the token expired — they last 24h). Sign in again.
 - **Provider errors in agent replies:** check `.env` has `OPENAI_API_KEY` and `DEFAULT_PROVIDER=openai`.
 - **Login rejects seeded accounts after pulling new code:** run the seed once (`python -m demo.shopping_assistant.seed`) — it patches missing columns (`role`, `shop`) in place, adds the merchant/admin accounts, and backfills order line items. `--reset` is only needed for a truly broken schema.

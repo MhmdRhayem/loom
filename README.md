@@ -23,7 +23,8 @@ The e-commerce assistant is assembled from the reusable core through three seams
 seams any Loom-based assistant would use:
 
 1. **Agents** — one YAML file per agent in a directory → `AgentRegistry.from_directory(path)`.
-2. **Tools** — plain functions + a `get_tools(names) -> [callables]` map, passed as the `tool_provider`.
+2. **Tools** — plain functions + a `get_tools(names, owner_id) -> [callables]` map, passed as the
+   `tool_provider`. The verified owner is bound in per turn, so "whose data" is never a model argument.
 3. **Composition root** — `create_app(registry, tool_provider, fallback_agent=...)` → a FastAPI app.
 
 ```python
@@ -51,7 +52,7 @@ is no package to build or install.
 
 ## Quickstart
 
-Prereqs: Python 3.12+, Node.js 20+, Docker. Run from the repo root.
+Prereqs: Python 3.12+, Node.js 20.19+, Docker. Run from the repo root.
 
 ### 1. Backend (API on port 8000)
 
@@ -60,14 +61,15 @@ python -m venv .venv
 .venv\Scripts\activate                 # POSIX: . .venv/bin/activate
 pip install -r requirements-dev.txt
 
-docker compose up -d                   # Postgres :5433, Redis :6379
+cp .env.example .env                   # then fill in a provider key (see below)
+docker compose up -d                   # Postgres :5433, Redis :6379, Qdrant :6333
 python scripts/init_db.py              # database schema
 python -m demo.shopping_assistant.seed # shop data (safe to re-run; also migrates)
 
 # provider key in .env — Anthropic is the default
 #   ANTHROPIC_API_KEY=...
 #   OpenAI instead: OPENAI_API_KEY=...  and  DEFAULT_PROVIDER=openai
-python -m uvicorn --env-file .env demo.shopping_assistant.app:app --reload
+python scripts/serve.py                # API on :8000
 ```
 
 ### 2. Frontend (UI on port 5173)
@@ -98,8 +100,13 @@ curl -X POST localhost:8000/chat -H "content-type: application/json" \
   -H "authorization: Bearer <token>" -d '{"message":"where is my order ORD-1005?"}'
 ```
 
+Use `scripts/serve.py` rather than a bare `uvicorn` command. On Windows uvicorn selects
+the ProactorEventLoop, which async psycopg refuses, so a plain `uvicorn` boots with
+Postgres unreachable and silently serves every request with persistence, memory and
+analytics disabled. The launcher hands uvicorn a selector loop instead.
+
 `GET /health` reports backend status; the app boots fail-soft even if Postgres/Redis are
-down. The full manual test script (all scenarios, per-role walkthroughs) is in
+down (check it says `postgres: ok`). The full manual test script (all scenarios, per-role walkthroughs) is in
 [DEMO_TESTING.md](DEMO_TESTING.md).
 
 ## Status
@@ -109,6 +116,8 @@ persistence, a sampled-critic evaluator with one bounded retry, multi-agent rout
 (one-or-more agents per turn, run in parallel + synthesized) with peer delegation (agents
 call each other via `ask_<name>` tools), adaptive learning (per-(agent, category)
 performance scoring, Layer 4 memory consolidation), and feature flags (`ENABLE_*`
-per subsystem). Reserved (built, not yet called): most of Redis and the evaluation policy
-stage. See
-[ARCHITECTURE.md](ARCHITECTURE.md#status) for the line-by-line list.
+per subsystem), plus semantic retrieval over Qdrant on the storefront side. Nothing is
+held in reserve: the speculative pieces were deleted rather than carried, so every
+symbol in the tree is on a live path. See
+[ARCHITECTURE.md](ARCHITECTURE.md#status) for the line-by-line list, including what is
+deferred by design and why.

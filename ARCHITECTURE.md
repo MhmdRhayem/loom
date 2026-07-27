@@ -133,7 +133,6 @@ The filename stem **must** equal `name`; the roster is validated at boot (includ
 | `max_tokens` | no | Default 1024 |
 | `eval_rubric` | no | Criteria the LLM critic judges against |
 | `judge_sample_rate` | no | Fraction of turns judged (risk pricing; default 1.0) |
-| `memory_scope` | no | Parsed, reserved |
 
 ## Configuration
 
@@ -158,7 +157,7 @@ timeseries, memory). Demo: `/auth/*` (login with lockout, register, me), `/shop/
 catalog + generated SVG product images; token-scoped cart with quantity steppers,
 checkout with declined-payment retry, orders with line items), `/manage/*`
 (merchant/admin: catalog CRUD, stats, sales rollup, orders, the AI proposal queue, user
-administration). 42 routes total; the role/route matrix is in the thesis appendix.
+administration). 38 routes total; the role/route matrix is in the thesis appendix.
 
 ## Storage
 
@@ -166,10 +165,11 @@ administration). 42 routes total; the role/route matrix is in the thesis appendi
 `conversations`, `conversation_turns` (unique per-conversation numbering),
 `turn_agents` (per-agent attribution in multi-agent turns), `agent_performance` (EMA),
 `auto_memory` (unique per owner+topic), `dream_runs`; plus the demo's `shop` schema
-(12 tables: products, coupons, orders + items, returns, accounts, carts, payments, the
+(11 tables: products, coupons, orders + items, returns, accounts, carts, payments, the
 14-entry FAQ handbook, tickets, and the merchant `product_changes` approval queue).
-**Redis** — the demo's login and chat rate limiters; conv-state/routing-cache/flag key
-patterns reserved. **Qdrant** (dedicated vector database, see
+**Redis** — the demo's login and chat rate limiters, and nothing else: `RedisStore` is a
+lifecycle wrapper, since Postgres is the system of record and there is no second copy of
+it to keep warm. **Qdrant** (dedicated vector database, see
 [VECTOR_DB_CHOICE.md](VECTOR_DB_CHOICE.md)) — semantic-retrieval collections `loom_faq`
 and `loom_products`. All three run from `docker-compose.yml` with pinned images
 (postgres:18, redis:8-alpine, qdrant/qdrant:v1.18.2).
@@ -241,7 +241,7 @@ responsive off-canvas sidebar.
 | `learning/signals.py`, `learning/scoring.py` | Rewards (no-signal on critic outage) → atomic SQL EMA |
 | `storage/base.py` | `Database`: async pool, repositories, `create_all()` + idempotent schema patches |
 | `storage/models.py`, `storage/repositories/*` | ORM tables; conversations (atomic `record_turn`), memory (atomic upsert), performance, dreams, analytics (5-query overview) |
-| `storage/redis_store.py` | Redis client + reserved key patterns |
+| `storage/redis_store.py` | Redis client lifecycle (the demo's rate limiters use it) |
 | `_platform.py` | Windows selector event loop (async psycopg) |
 | `scripts/init_db.py` | Create/migrate the database schema (idempotent) |
 | `scripts/benchmark.py` | Outside-in replay benchmark → CSV (routing hits, eval, latency, tokens) |
@@ -250,12 +250,15 @@ responsive off-canvas sidebar.
 
 ## Quality practice
 
-CI on every push: ruff lint + format check, pytest (36 tests over the pure logic: routing
-policy, rewards, auth primitives, prompt helpers, retrieval fallbacks), frontend
-typecheck + production build. The LLM-dependent paths are covered by the replay benchmark
-(`benchmarks/*.csv`) and a 12-scenario manual matrix (see DEMO_TESTING.md). Concurrency
-guarantees were verified against the live database (parallel turn numbering, upsert
-dedupe, EMA composition).
+CI on every push: ruff lint + format check, pytest (111 tests over the pure logic:
+routing policy, the chat ownership guard, verdict aggregation, agent-visibility and
+delegation bounds, registry validation against the real roster, all four memory layers,
+rewards, auth primitives, prompt helpers, retrieval fallbacks), frontend typecheck +
+production build. The suite needs no Postgres, no Redis and no provider key, so it costs
+nothing to run anywhere. The LLM-dependent paths are covered by the replay benchmark
+(`benchmarks/*.csv`, tracked in the repo) and a 13-scenario manual matrix (A-M, see
+DEMO_TESTING.md). Concurrency guarantees were verified against the live database
+(parallel turn numbering, upsert dedupe, EMA composition).
 
 ## Status
 
@@ -263,8 +266,10 @@ Everything above is **built and verified working** end-to-end on a live provider
 (single + multi-agent + fallback), peer delegation, all four memory layers, evaluation
 with retry, learning, dreaming, token streaming, conversation resume with ownership
 enforcement, semantic retrieval over Qdrant, the full storefront/merchant/admin web app,
-and the benchmark + ablation harness (flags). **Reserved** (present, not on the request
-path): Redis conv-state/routing-cache/flag patterns, the `memory_scope` YAML field.
+and the benchmark + ablation harness (flags). Nothing is "reserved": the speculative
+pieces that used to sit here (Redis conv-state/routing-cache/flag helpers, the
+`memory_scope` YAML field, memory expiry) were deleted rather than carried, so every
+symbol in the tree is on a live path.
 **Deferred by design:** cross-process workers and Redis mailboxes (in-process multi-agent
 covers the need), an agent base class, core-level approval gates (the storefront's
 merchant queue is the domain-level version), Thompson-sampling routing (built, measured
