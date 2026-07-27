@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Collection
+from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Callable, Sequence
+from typing import Any
 
 from langchain.agents import create_agent
 from langchain.chat_models import init_chat_model

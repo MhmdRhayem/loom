@@ -35,7 +35,7 @@ class AgentDefinition:
     memory_scope: str = "owner"
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "AgentDefinition":
+    def from_dict(cls, data: dict[str, Any]) -> AgentDefinition:
         return cls(
             name=data["name"],
             description=str(data.get("description", "")).strip(),
@@ -59,7 +59,7 @@ class AgentRegistry:
     @classmethod
     def from_directory(
         cls, path: str | Path, terminal_targets: set[str] | None = None
-    ) -> "AgentRegistry":
+    ) -> AgentRegistry:
         registry = cls()
         registry.load_directory(path, terminal_targets)
         return registry

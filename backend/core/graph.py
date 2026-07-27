@@ -33,7 +33,7 @@ def build_graph(
     tool_provider: ToolProvider,
     *,
     fallback_agent: str | None = None,
-    memory: "MemoryRepository | None" = None,
+    memory: MemoryRepository | None = None,
 ):
     """Compile and return the conversation graph wired to the registry and settings."""
 

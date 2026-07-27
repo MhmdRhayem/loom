@@ -8,9 +8,9 @@ from pathlib import Path
 # this script is launched by path, e.g. `python scripts/init_db.py`.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from backend._platform import configure_async_runtime  # noqa: E402
-from backend.core.config import Settings  # noqa: E402
-from backend.storage.base import Database  # noqa: E402
+from backend._platform import configure_async_runtime
+from backend.core.config import Settings
+from backend.storage.base import Database
 
 configure_async_runtime()
 

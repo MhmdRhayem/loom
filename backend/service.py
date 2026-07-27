@@ -68,9 +68,9 @@ class DreamOutcome:
 async def run_turn(
     *,
     graph: Any,
-    db: "Database | None",
-    settings: "Settings | None",
-    registry: "AgentRegistry | None",
+    db: Database | None,
+    settings: Settings | None,
+    registry: AgentRegistry | None,
     message: str,
     conversation_id: str | None,
     owner_id: str | None,
@@ -109,9 +109,9 @@ async def run_turn(
 async def stream_turn(
     *,
     graph: Any,
-    db: "Database | None",
-    settings: "Settings | None",
-    registry: "AgentRegistry | None",
+    db: Database | None,
+    settings: Settings | None,
+    registry: AgentRegistry | None,
     message: str,
     conversation_id: str | None,
     owner_id: str | None,
@@ -178,9 +178,9 @@ async def stream_turn(
 
 async def _finish_turn(
     *,
-    db: "Database | None",
-    settings: "Settings | None",
-    registry: "AgentRegistry | None",
+    db: Database | None,
+    settings: Settings | None,
+    registry: AgentRegistry | None,
     message: str,
     owner_id: str | None,
     result: dict,
@@ -226,8 +226,8 @@ def _outcome_from(result: dict) -> TurnOutcome:
 
 async def _title_conversation(
     *,
-    db: "Database | None",
-    settings: "Settings | None",
+    db: Database | None,
+    settings: Settings | None,
     conversation_id: str,
     user_message: str,
     agent_response: str | None,
@@ -263,7 +263,7 @@ async def _title_conversation(
 
 
 async def _owned_conversation_id(
-    db: "Database | None", conversation_id: str | None, owner_id: str | None
+    db: Database | None, conversation_id: str | None, owner_id: str | None
 ) -> str | None:
     """The conversation id this turn may use: the given one when it's absent, brand new,
     or owned by the caller — None (start fresh) when it belongs to someone else.
@@ -288,7 +288,7 @@ async def _owned_conversation_id(
 
 
 async def _load_history(
-    db: "Database | None", settings: "Settings | None", conversation_id: str | None
+    db: Database | None, settings: Settings | None, conversation_id: str | None
 ) -> list[dict]:
     """The conversation so far as user/assistant messages. Never raises — [] on any miss.
 
@@ -327,7 +327,7 @@ async def _load_history(
 
 
 async def _rolling_summary(
-    db: "Database", settings: "Settings | None", conversation_id: uuid.UUID, aged_out: list
+    db: Database, settings: Settings | None, conversation_id: uuid.UUID, aged_out: list
 ) -> str | None:
     """The stored summary covering the aged-out turns, regenerating it when stale."""
     try:
@@ -372,9 +372,9 @@ async def _rolling_summary(
 
 async def _persist_turn(
     *,
-    db: "Database | None",
-    settings: "Settings | None",
-    registry: "AgentRegistry | None",
+    db: Database | None,
+    settings: Settings | None,
+    registry: AgentRegistry | None,
     message: str,
     owner_id: str | None,
     result: dict,
@@ -446,7 +446,7 @@ async def _persist_turn(
 
 
 async def record_feedback(
-    *, db: "Database | None", conversation_id: str, rating: str
+    *, db: Database | None, conversation_id: str, rating: str
 ) -> FeedbackOutcome:
     """Record a thumbs rating against the conversation's last turn. Never raises."""
     reward = reward_from_feedback(rating)
@@ -472,7 +472,7 @@ async def record_feedback(
 
 
 async def run_dream(
-    *, db: "Database | None", settings: "Settings | None", owner_id: str, force: bool = False
+    *, db: Database | None, settings: Settings | None, owner_id: str, force: bool = False
 ) -> DreamOutcome:
     """Run memory consolidation for an owner, when it's due or force is set."""
     if db is None or settings is None or not settings.enable_dreaming:

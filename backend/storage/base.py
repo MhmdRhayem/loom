@@ -72,11 +72,11 @@ class Database:
         self._sessionmaker: async_sessionmaker[AsyncSession] | None = None
 
         # Set in open(); one repository per area of the schema.
-        self.conversations: "ConversationRepository" = None  # type: ignore[assignment]
-        self.memory: "MemoryRepository" = None  # type: ignore[assignment]
-        self.performance: "PerformanceRepository" = None  # type: ignore[assignment]
-        self.dreams: "DreamRepository" = None  # type: ignore[assignment]
-        self.analytics: "AnalyticsRepository" = None  # type: ignore[assignment]
+        self.conversations: ConversationRepository = None  # type: ignore[assignment]
+        self.memory: MemoryRepository = None  # type: ignore[assignment]
+        self.performance: PerformanceRepository = None  # type: ignore[assignment]
+        self.dreams: DreamRepository = None  # type: ignore[assignment]
+        self.analytics: AnalyticsRepository = None  # type: ignore[assignment]
 
     async def open(self) -> None:
         if self._engine is not None:

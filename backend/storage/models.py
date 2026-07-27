@@ -47,7 +47,7 @@ class Conversation(Base):
     total_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
     compaction_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
 
-    turns: Mapped[list["ConversationTurn"]] = relationship(
+    turns: Mapped[list[ConversationTurn]] = relationship(
         back_populates="conversation", cascade="all, delete-orphan", passive_deletes=True
     )
 
@@ -81,7 +81,7 @@ class ConversationTurn(Base):
     )
 
     conversation: Mapped[Conversation] = relationship(back_populates="turns")
-    agents: Mapped[list["TurnAgent"]] = relationship(
+    agents: Mapped[list[TurnAgent]] = relationship(
         back_populates="turn", cascade="all, delete-orphan", passive_deletes=True
     )
 

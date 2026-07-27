@@ -4,4 +4,6 @@
 pytest>=8.0
 pytest-asyncio>=0.24
 httpx>=0.28
-ruff>=0.15.20
+# Pinned exactly: ruff's default rule set widens between releases, so a floor pin
+# (>=) lets CI enforce rules the code was never written against. Bump deliberately.
+ruff==0.15.20

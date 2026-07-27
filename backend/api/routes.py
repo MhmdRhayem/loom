@@ -111,7 +111,7 @@ async def agents(request: Request) -> AgentsResponse:
     )
 
 
-def _chat_response(outcome: "service.TurnOutcome") -> ChatResponse:
+def _chat_response(outcome: service.TurnOutcome) -> ChatResponse:
     return ChatResponse(
         conversation_id=outcome.conversation_id,
         agent=", ".join(outcome.agents) if outcome.agents else None,
