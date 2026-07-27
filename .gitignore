@@ -38,4 +38,5 @@ Thumbs.db
 
 # Project
 *.log
-benchmarks/
+# benchmarks/ is tracked: ARCHITECTURE.md and the thesis cite these CSVs as the
+# evaluation evidence, so a fresh clone must contain them.

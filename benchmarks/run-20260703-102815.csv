@@ -1,0 +1,9 @@
+iteration,prompt,expected_agent,routed_agents,routing_hit,confidence,category,eval_stage,eval_score,eval_pass,retries,latency_ms,tokens
+1,Where is my order ORD-1005?,order_tracking,order_tracking,True,0.99,order status,skipped,,True,0,10269,1945
+1,What orders do I have?,order_tracking,order_tracking,True,0.99,order history,skipped,,True,0,9918,2115
+1,Do you have any dresses under $60?,catalog_advisor,catalog_advisor,True,0.98,product search,critic,0.92,True,0,10545,2147
+1,I'm between sizes for the Linen Wrap Dress - which size should I take?,fit_stylist,fit_stylist,True,0.98,sizing,critic,0.82,True,0,11486,2220
+1,My payment keeps getting declined at checkout - what's wrong?,checkout_payments,checkout_payments,True,0.98,payment issue,critic,0.97,True,1,13883,2212
+1,I want to return my order ORD-1005.,returns_refunds,returns_refunds,True,0.99,returns,critic,0.97,True,0,8362,1924
+1,I forgot my password - how do I reset it?,account_assistant,account_assistant,True,0.99,security_reset,skipped,,True,0,8340,1856
+1,Which payment methods do you accept?,support_concierge,checkout_payments,False,0.98,payment methods,critic,0.88,True,0,7723,960
