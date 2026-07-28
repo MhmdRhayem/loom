@@ -12,9 +12,15 @@ from __future__ import annotations
 import argparse
 import csv
 import statistics
+import sys
 from pathlib import Path
 
+# Running a file puts scripts/ on sys.path, not the repo root; this is a flat app, so
+# put the root back to make `scripts.benchmark` importable.
 REPO = Path(__file__).resolve().parents[1]
+if str(REPO) not in sys.path:
+    sys.path.insert(0, str(REPO))
+
 BENCHMARKS = REPO / "benchmarks"
 
 # Presentation order: baseline first, then one row per ablated subsystem, monolith last.
@@ -43,15 +49,33 @@ def _floats(rows: list[dict], key: str) -> list[float]:
     return out
 
 
+def _multi_domain_prompts() -> set[str]:
+    """The prompts written to span two domains, where fanning out is the right answer.
+
+    Exact-match is the honest metric on a single-domain prompt and the wrong one here:
+    a second agent on "track my order and tell me your damage policy" is the router
+    working, not missing. Reported separately so neither number flatters the other.
+    """
+    from scripts.benchmark import PROMPTS
+
+    return {case["prompt"] for case in PROMPTS[-5:]}
+
+
 def summarize(path: Path) -> dict:
     with path.open(encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle))
     if not rows:
         return {}
 
+    multi = _multi_domain_prompts()
+    single_rows = [r for r in rows if r.get("prompt") not in multi]
+    multi_rows = [r for r in rows if r.get("prompt") in multi]
+
     total = len(rows)
     hits = sum(1 for r in rows if r.get("routing_hit") == "True")
     exact = sum(1 for r in rows if r.get("routing_exact") == "True")
+    single_exact = sum(1 for r in single_rows if r.get("routing_exact") == "True")
+    fanned_out = sum(1 for r in multi_rows if "+" in (r.get("routed_agents") or ""))
     judged = [r for r in rows if r.get("eval_stage") in ("critic", "structural")]
     passes = sum(1 for r in judged if r.get("eval_pass") == "True")
     scores = _floats(judged, "eval_score")
@@ -66,6 +90,10 @@ def summarize(path: Path) -> dict:
         "turns": total,
         "recall": hits / total,
         "exact": exact / total,
+        "single_exact": (single_exact / len(single_rows)) if single_rows else None,
+        "single_n": len(single_rows),
+        "fanned_out": fanned_out,
+        "multi_n": len(multi_rows),
         "confidence": statistics.mean(confidences) if confidences else None,
         "judged": len(judged),
         "pass_rate": (passes / len(judged)) if judged else None,
@@ -94,7 +122,7 @@ def main() -> None:
     results = {label: summarize(found[label]) for label in ORDER if label in found}
 
     header = (
-        f"{'config':<14}{'turns':>6}{'recall':>8}{'exact':>7}{'conf':>7}"
+        f"{'config':<14}{'turns':>6}{'recall':>8}{'1-agent':>9}{'fanout':>8}{'conf':>7}"
         f"{'judged':>8}{'pass':>7}{'score':>7}{'retry':>7}{'med ms':>8}{'tokens':>9}"
     )
     print(header)
@@ -102,12 +130,18 @@ def main() -> None:
     for label, s in results.items():
         if not s:
             continue
+        fanout = f"{s['fanned_out']}/{s['multi_n']}"
         print(
-            f"{label:<14}{s['turns']:>6}{s['recall']:>7.0%}{s['exact']:>7.0%}"
+            f"{label:<14}{s['turns']:>6}{s['recall']:>7.0%}"
+            f"{_fmt(s['single_exact'], '.0%'):>9}{fanout:>8}"
             f"{_fmt(s['confidence'], '.3f'):>7}{s['judged']:>8}"
             f"{_fmt(s['pass_rate'], '.0%'):>7}{_fmt(s['mean_score'], '.2f'):>7}"
             f"{s['retries']:>7}{_fmt(s['median_latency'], '.0f'):>8}{s['tokens']:>9,}"
         )
+    print(
+        "\n1-agent = exact match on the 35 single-domain prompts;"
+        " fanout = how many of the 5 multi-domain prompts routed to >1 agent."
+    )
 
     base = results.get("baseline")
     if base:

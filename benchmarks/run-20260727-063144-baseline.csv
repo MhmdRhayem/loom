@@ -1,0 +1,41 @@
+iteration,prompt,expected_agent,routed_agents,routing_hit,routing_exact,confidence,category,eval_stage,eval_score,eval_pass,retries,latency_ms,agent_tokens
+1,Where is my order ORD-1005?,order_tracking,order_tracking,True,True,0.99,order status,skipped,,True,0,8959,1990
+1,What orders do I have?,order_tracking,order_tracking,True,True,0.99,order history,critic,0.98,True,0,6500,2259
+1,Has ORD-1006 shipped yet?,order_tracking,order_tracking,True,True,0.99,order status,critic,0.98,True,0,6583,2043
+1,What's the tracking number for my trench coat order?,order_tracking,order_tracking,True,True,0.98,order tracking,skipped,,True,0,5670,2239
+1,When will ORD-1006 arrive?,order_tracking,order_tracking,True,True,0.98,order status,critic,0.97,True,0,6393,2078
+1,Do you have any dresses under $60?,catalog_advisor,catalog_advisor,True,True,0.99,product search,critic,0.95,True,0,13520,2647
+1,What's the price of the Merino Wool Sweater? Any deals on it?,catalog_advisor,catalog_advisor,True,True,0.98,product pricing,critic,0.97,True,0,12891,4362
+1,Compare the Linen Wrap Dress and the Aurora Midi Dress for me.,catalog_advisor,catalog_advisor,True,True,0.98,product comparison,skipped,,True,0,143930,5419
+1,Is the Canvas Tote Bag in stock?,catalog_advisor,catalog_advisor,True,True,0.97,product availability,skipped,,True,0,14851,2699
+1,Is there a coupon code for the Leather Ankle Boots?,catalog_advisor,catalog_advisor,True,True,0.98,coupon lookup,skipped,,True,0,12264,4404
+1,I'm between sizes for the Linen Wrap Dress - which size should I take?,fit_stylist,fit_stylist,True,True,0.98,sizing advice,skipped,,True,0,14470,2581
+1,What would you style with the Classic Trench Coat?,fit_stylist,fit_stylist,True,True,0.97,style advice,skipped,,True,0,21168,5416
+1,Do the High-Rise Slim Jeans run large or small?,fit_stylist,fit_stylist,True,True,0.95,fit,skipped,,True,0,5893,2470
+1,Suggest an outfit for a job interview from your catalog.,fit_stylist,fit_stylist,True,True,0.96,outfit suggestion,critic,0.92,True,0,14702,3133
+1,I'm usually a medium - will the Merino Wool Sweater fit me?,fit_stylist,fit_stylist,True,True,0.98,fit advice,critic,0.95,True,0,12618,3028
+1,My payment keeps getting declined at checkout - what's wrong?,checkout_payments,checkout_payments,True,True,0.98,payment troubleshooting,critic,0.86,True,0,7378,2415
+1,What's in my cart right now?,checkout_payments,checkout_payments,True,True,0.93,cart inquiry,critic,0.98,True,0,6994,2408
+1,Does the DRESS15 coupon work on my cart?,checkout_payments,checkout_payments,True,True,0.98,promo code,critic,0.98,True,0,10871,3910
+1,Why won't my checkout go through?,checkout_payments,checkout_payments,True,True,0.98,checkout issue,critic,0.93,True,0,7281,2428
+1,Can I pay with a different card after my card was declined?,checkout_payments,checkout_payments,True,True,0.98,payment troubleshooting,critic,0.92,True,0,8630,2481
+1,I want to return my order ORD-1005.,returns_refunds,returns_refunds,True,True,0.99,returns,critic,0.98,True,0,6742,2247
+1,I want to exchange the dress from ORD-1006 for a size S.,returns_refunds,returns_refunds,True,True,0.98,returns,critic,0.92,True,0,8098,2354
+1,What's the status of my refund?,returns_refunds,returns_refunds,True,True,0.98,refund status,critic,0.95,True,0,6126,1092
+1,My sweater arrived damaged - I want my money back.,returns_refunds,returns_refunds,True,True,0.98,returns,critic,0.92,True,0,6008,1098
+1,Start a return for my order ORD-1006.,returns_refunds,returns_refunds,True,True,0.99,returns,critic,0.96,True,0,6607,2316
+1,I forgot my password - how do I reset it?,account_assistant,account_assistant,True,True,0.99,password reset,critic,0.8,True,0,8180,2335
+1,How do I change my shipping address?,account_assistant,account_assistant,True,True,0.97,address management,critic,0.92,True,0,8855,2334
+1,Update my email address on my account.,account_assistant,account_assistant,True,True,0.99,account update,skipped,,True,0,6698,2338
+1,I think someone else logged into my account - help!,account_assistant,account_assistant,True,True,0.98,security,critic,0.92,True,2,12243,1397
+1,Change the phone number on my profile.,account_assistant,account_assistant,True,True,0.98,profile update,critic,0.98,True,0,6006,2328
+1,Which payment methods do you accept?,support_concierge,support_concierge,True,True,0.98,policy faq,critic,0.93,True,1,19290,2860
+1,"Do you ship internationally, and how much does it cost?",support_concierge,support_concierge,True,True,0.98,shipping policy,critic,0.88,True,0,11208,2619
+1,How long does standard shipping take?,support_concierge,support_concierge,True,True,0.98,shipping policy,critic,0.96,True,0,12331,2532
+1,I have a complaint about your customer service - I want to speak to a human.,support_concierge,support_concierge,True,True,0.99,complaint,critic,0.96,True,0,8797,2523
+1,Is my card information stored on your servers?,support_concierge,support_concierge,True,True,0.98,privacy,critic,0.86,True,0,11646,2628
+1,"Where is order ORD-1006, and can I still return it if the dress doesn't fit?",order_tracking,order_tracking+returns_refunds,True,False,0.96,order status and returns,critic,0.84,True,0,12162,8219
+1,"Is the Everyday Cotton Tee back in stock? Also, I need to update my shipping address.",catalog_advisor,catalog_advisor+account_assistant,True,False,0.98,product availability and address update,critic,0.81,True,0,17398,8304
+1,"What's in my cart right now, and does the DRESS15 coupon apply to it?",checkout_payments,checkout_payments,True,True,0.98,cart and coupon,critic,0.98,True,0,9618,4240
+1,"Before I retry my payment, is the dress in my cart still in stock, and is there a coupon for it?",checkout_payments,checkout_payments+catalog_advisor,True,False,0.96,checkout and deals,critic,0.62,False,0,11944,5525
+1,Track ORD-1005 and tell me your policy if it arrives damaged.,order_tracking,order_tracking+support_concierge,True,False,0.95,order status and policy,critic,0.88,True,0,16997,8749

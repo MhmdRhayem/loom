@@ -40,3 +40,6 @@ Thumbs.db
 *.log
 # benchmarks/ is tracked: ARCHITECTURE.md and the thesis cite these CSVs as the
 # evaluation evidence, so a fresh clone must contain them.
+
+# Ablation run logs (one per configuration, regenerated each run)
+.ablation-*.log

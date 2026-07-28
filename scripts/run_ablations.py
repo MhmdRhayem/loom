@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import socket
 import subprocess
 import sys
 import time
@@ -82,15 +83,40 @@ def _reset_store() -> None:
             conn.execute(text(f"DELETE FROM {table} WHERE owner_id = :o"), {"o": EMAIL})
 
 
-def _wait_for_health(timeout: float = 90.0) -> None:
+def _wait_for_health(server: subprocess.Popen, log: Path, timeout: float = 300.0) -> None:
+    """Block until /health answers, failing fast if the server died first.
+
+    The import tree alone takes the better part of a minute on a cold start, so the
+    budget is generous; the point of watching server.poll() is that a crash (a port
+    already bound, a bad app path) should surface in seconds with its log, rather than
+    looking identical to a slow boot for the whole timeout.
+    """
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
+        if server.poll() is not None:
+            tail = log.read_text(encoding="utf-8", errors="replace")[-1500:]
+            raise RuntimeError(f"backend exited with code {server.returncode}\n{tail}")
         try:
-            with urllib.request.urlopen(f"{BASE_URL}/health", timeout=5):
-                return
+            with urllib.request.urlopen(f"{BASE_URL}/health", timeout=5) as response:
+                payload = response.read().decode()
+            # A degraded boot would silently invalidate the whole comparison: with
+            # Postgres down the graph runs memory as a no-op and nothing persists, so
+            # every configuration would look like memory-off and learning-off.
+            if '"postgres":"ok"' not in payload.replace(" ", ""):
+                raise RuntimeError(f"backend booted degraded, refusing to measure: {payload}")
+            # Health can be answered by a survivor on the same port while our own
+            # process is still on its way down from a lost bind. Only trust the reply
+            # once the process we launched is still alive to have produced it.
+            if server.poll() is not None:
+                tail = log.read_text(encoding="utf-8", errors="replace")[-1500:]
+                raise RuntimeError(
+                    "another process answered /health; ours exited with code "
+                    f"{server.returncode}\n{tail}"
+                )
+            return
         except (urllib.error.URLError, OSError, TimeoutError):
             time.sleep(1.0)
-    raise RuntimeError("backend did not become healthy in time")
+    raise RuntimeError(f"backend did not become healthy within {timeout:.0f}s")
 
 
 def run_one(label: str) -> Path | None:
@@ -98,8 +124,20 @@ def run_one(label: str) -> Path | None:
     module, overrides = CONFIGS[label]
     print(f"\n{'=' * 70}\n{label}  ({module}, {overrides or 'all flags on'})\n{'=' * 70}")
 
+    # Refuse to start on an occupied port. A leftover server answers /health perfectly
+    # well, so without this the freshly launched process loses the bind, dies, and the
+    # benchmark silently measures whatever was already listening — which is how an
+    # earlier run produced an "evaluation off" configuration that was still evaluating.
+    if _port_in_use():
+        raise RuntimeError(
+            "port 8000 is already in use; refusing to run, the benchmark would measure "
+            "the process already listening there rather than this configuration"
+        )
+
     _reset_store()
     env_path = _env_file(label, overrides)
+    log_path = REPO / f".ablation-{label}.log"
+    log_handle = log_path.open("w", encoding="utf-8")
     # scripts/serve.py, not a bare uvicorn command: uvicorn would pick Windows'
     # ProactorEventLoop, async psycopg would refuse it, and every configuration would
     # then be measured with persistence, memory and learning silently disabled.
@@ -119,11 +157,11 @@ def run_one(label: str) -> Path | None:
             "warning",
         ],
         cwd=REPO,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stdout=log_handle,
+        stderr=subprocess.STDOUT,
     )
     try:
-        _wait_for_health()
+        _wait_for_health(server, log_path)
         from scripts.benchmark import run  # imported late: needs the repo root on sys.path
 
         return run(BASE_URL, EMAIL, PASSWORD, repeat=1, label=label)
@@ -133,7 +171,29 @@ def run_one(label: str) -> Path | None:
             server.wait(timeout=20)
         except subprocess.TimeoutExpired:
             server.kill()
+            server.wait(timeout=10)
+        log_handle.close()
         env_path.unlink(missing_ok=True)
+        # The port has to be free before the next configuration boots, and a killed
+        # server can hold it briefly.
+        _wait_for_port_free()
+
+
+def _port_in_use() -> bool:
+    """True if something is already listening on :8000."""
+    with socket.socket() as probe:
+        probe.settimeout(1.0)
+        return probe.connect_ex(("127.0.0.1", 8000)) == 0
+
+
+def _wait_for_port_free(timeout: float = 60.0) -> None:
+    """Block until :8000 is free, so the next configuration can bind it."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not _port_in_use():
+            return
+        time.sleep(1.0)
+    raise RuntimeError("port 8000 never freed; refusing to start the next configuration")
 
 
 def main() -> None:
