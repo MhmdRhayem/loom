@@ -33,17 +33,32 @@ def fake_settings():
     )
 
 
+def _usage_message(input_tokens=120, output_tokens=30):
+    """A stand-in model reply carrying the usage_metadata the accounting reads."""
+    return SimpleNamespace(
+        usage_metadata={
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "total_tokens": input_tokens + output_tokens,
+            "input_token_details": {"cache_read": 0},
+        }
+    )
+
+
 def patch_model(monkeypatch, extraction=None, raises=False):
     """Replace init_chat_model so no provider is ever contacted."""
 
     class FakeModel:
-        def with_structured_output(self, schema):
+        def with_structured_output(self, schema, include_raw=False):
+            # include_raw is what the production call passes, so that the underlying
+            # message (and its usage_metadata) survives for token accounting.
+            assert include_raw, "production code must ask for the raw message"
             return self
 
         async def ainvoke(self, prompt):
             if raises:
                 raise RuntimeError("provider error")
-            return extraction
+            return {"raw": _usage_message(), "parsed": extraction, "parsing_error": None}
 
     monkeypatch.setattr(auto_memory, "init_chat_model", lambda *a, **k: FakeModel())
 

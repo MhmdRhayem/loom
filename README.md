@@ -54,6 +54,18 @@ is no package to build or install.
 
 Prereqs: Python 3.12+, Node.js 20.19+, Docker. Run from the repo root.
 
+On Windows, `run.ps1` does every step below in one command — it checks the prereqs, brings
+up Docker, creates the schema, seeds the shop, then starts the API and the UI and opens the
+browser. Ctrl+C stops both servers.
+
+```powershell
+.\run.ps1                  # everything
+.\run.ps1 -SkipSeed        # fast restart: skip schema + seed
+.\run.ps1 -NoFrontend      # API only
+```
+
+The manual sequence, step by step:
+
 ### 1. Backend (API on port 8000)
 
 ```bash

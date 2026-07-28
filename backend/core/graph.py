@@ -12,6 +12,7 @@ from langgraph.graph import END, START, StateGraph
 from backend.agents.factory import run_agent
 from backend.agents.registry import AgentRegistry
 from backend.agents.router import route_turn
+from backend.core import usage
 from backend.core.config import Settings
 from backend.core.prompt_builder import message_text
 from backend.core.state import ConversationState
@@ -298,6 +299,7 @@ async def _synthesize(
             },
         ]
     )
+    usage.record(out)
     return message_text(out)
 
 

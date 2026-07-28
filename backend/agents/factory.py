@@ -11,6 +11,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.tools import BaseTool
 
 from backend.agents.registry import AgentDefinition, AgentRegistry
+from backend.core import usage
 from backend.core.config import Settings
 from backend.core.prompt_builder import (
     build_messages,
@@ -119,7 +120,7 @@ async def run_agent(
         result = await agent.ainvoke({"messages": messages})
         msgs = result["messages"]
         tool_calls = _tool_calls(msgs) + [c for r in sub_runs for c in r.tool_calls]
-        tokens = _tokens_used(msgs) + sum(r.tokens for r in sub_runs)
+        tokens = usage.record_all(msgs).total + sum(r.tokens for r in sub_runs)
         return AgentRun(message_text(msgs[-1]), tool_calls, tokens)
     except Exception:  # noqa: BLE001 - a failed sub-run must not crash the turn
         logger.warning("run of agent %s failed", name, exc_info=True)
@@ -172,15 +173,6 @@ def _ask_tool(
     ask.__name__ = f"ask_{name}"
     ask.__doc__ = f"Ask the {name} agent for help and get its answer. {name} handles: {description} Pass a clear, self-contained question."
     return ask
-
-
-def _tokens_used(messages: Sequence[Any]) -> int:
-    """Total tokens across every model call in the run (LangChain usage_metadata)."""
-    total = 0
-    for message in messages:
-        usage = getattr(message, "usage_metadata", None) or {}
-        total += int(usage.get("total_tokens", 0) or 0)
-    return total
 
 
 def _tool_calls(messages: Sequence[Any]) -> list[dict[str, Any]]:

@@ -194,12 +194,18 @@ def run(base_url: str, email: str, password: str, repeat: int, label: str) -> Pa
                     "eval_pass": eval_result.get("pass"),
                     "retries": reply.get("retry_count", 0),
                     "latency_ms": latency_ms,
-                    # Named for what it is: the router, critic, synthesizer, extractor
-                    # and titler all spend tokens that never reach agent_runs, so this
-                    # is not the turn's total cost.
+                    # agent_tokens is the specialists' share; the turn_* columns are
+                    # the whole bill, including the router, critic, synthesizer, memory
+                    # extractor and titler, which agent_runs never sees. Input and
+                    # output are separated because they are priced several times apart.
                     "agent_tokens": sum(
                         r.get("tokens") or 0 for r in reply.get("agent_runs") or []
                     ),
+                    "turn_tokens": (reply.get("usage") or {}).get("total_tokens"),
+                    "input_tokens": (reply.get("usage") or {}).get("input_tokens"),
+                    "output_tokens": (reply.get("usage") or {}).get("output_tokens"),
+                    "cached_input_tokens": (reply.get("usage") or {}).get("cached_input_tokens"),
+                    "model_calls": (reply.get("usage") or {}).get("model_calls"),
                 }
             )
             hit = "OK  " if case["expect"] in agents else "MISS"
@@ -229,7 +235,13 @@ def run(base_url: str, email: str, password: str, repeat: int, label: str) -> Pa
     print(f"avg confidence   : {statistics.mean(confidences):.2f}" if confidences else "")
     print(f"avg eval score   : {statistics.mean(scores):.2f}" if scores else "")
     print(f"latency (median) : {statistics.median(latencies)}ms")
-    print(f"agent tokens     : {sum(r['agent_tokens'] for r in rows)} (excludes plumbing calls)")
+    agent_tok = sum(r["agent_tokens"] for r in rows)
+    turn_tok = sum(r["turn_tokens"] or 0 for r in rows)
+    calls = sum(r["model_calls"] or 0 for r in rows)
+    print(f"agent tokens     : {agent_tok} (the specialists' share)")
+    print(f"turn tokens      : {turn_tok} across {calls} model calls (the whole bill)")
+    if turn_tok:
+        print(f"plumbing share   : {(turn_tok - agent_tok) / turn_tok:.0%} of tokens")
     print(f"csv              : {out_path}")
     return out_path
 

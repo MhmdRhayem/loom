@@ -8,6 +8,7 @@ from typing import Any
 from langchain.chat_models import init_chat_model
 from pydantic import BaseModel, Field
 
+from backend.core import usage
 from backend.core.config import Settings
 from backend.storage.repositories.dreams import DreamRepository
 from backend.storage.repositories.memory import MemoryRepository
@@ -70,9 +71,13 @@ async def consolidate(
                 "into a single clear fact (and list the now-redundant topic keys to drop), and list stale, "
                 "trivial, or contradictory topic keys to prune. Only use topic keys shown."
             )
-            plan: DreamPlan = await model.with_structured_output(DreamPlan).ainvoke(
-                [{"role": "system", "content": system}, {"role": "user", "content": catalogue}]
+            plan: DreamPlan | None = await usage.structured(
+                model,
+                DreamPlan,
+                [{"role": "system", "content": system}, {"role": "user", "content": catalogue}],
             )
+            if plan is None:
+                raise ValueError("consolidation returned no plan")
             # The plan is LLM-generated, so the same topic can appear in several merges
             # or in both a merge and the prune list — track deletions so an overlapping
             # plan neither double-counts nor merges into an already-deleted row.

@@ -37,6 +37,7 @@ class ChatResponse(BaseModel):
     tool_calls: list[dict] = Field(default_factory=list)
     agent_runs: list[AgentRun] = Field(default_factory=list)
     retry_count: int = 0
+    usage: dict | None = None
 
 
 class HealthResponse(BaseModel):

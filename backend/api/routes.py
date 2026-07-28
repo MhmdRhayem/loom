@@ -128,6 +128,7 @@ def _chat_response(outcome: service.TurnOutcome) -> ChatResponse:
         tool_calls=outcome.tool_calls,
         agent_runs=[AgentRun(**run) for run in outcome.agent_runs],
         retry_count=outcome.retry_count,
+        usage=outcome.usage,
     )
 
 

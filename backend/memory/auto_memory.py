@@ -5,6 +5,7 @@ import logging
 from langchain.chat_models import init_chat_model
 from pydantic import BaseModel, Field
 
+from backend.core import usage
 from backend.core.config import Settings
 from backend.storage.repositories.memory import MemoryRepository
 
@@ -66,9 +67,12 @@ async def extract_and_upsert(
             {"role": "system", "content": _EXTRACT_INSTRUCTIONS},
             {"role": "user", "content": f"User: {user_message}\nAssistant: {agent_response}"},
         ]
-        extraction: _Extraction = await model.with_structured_output(_Extraction).ainvoke(prompt)
+        extraction: _Extraction | None = await usage.structured(model, _Extraction, prompt)
     except Exception:  # noqa: BLE001 - extraction is best-effort
         logger.warning("auto-memory extraction failed for owner %s", owner_id, exc_info=True)
+        return 0
+
+    if extraction is None:
         return 0
 
     written = 0

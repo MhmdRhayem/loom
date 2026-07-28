@@ -7,6 +7,7 @@ from langchain.chat_models import init_chat_model
 from pydantic import BaseModel, Field
 
 from backend.agents.registry import AgentDefinition
+from backend.core import usage
 from backend.core.config import Settings
 
 logger = logging.getLogger(__name__)
@@ -41,9 +42,13 @@ async def critique(
         model = init_chat_model(
             settings.model_id_for_tier("fast"), model_provider=settings.default_provider
         )
-        verdict: Verdict = await model.with_structured_output(Verdict).ainvoke(
-            _prompt(response, definition, user_message)
+        verdict: Verdict | None = await usage.structured(
+            model, Verdict, _prompt(response, definition, user_message)
         )
+        if verdict is None:
+            # The model answered without calling the schema tool. That is an outage of
+            # the critic, not a verdict, so it takes the same no-signal path as an error.
+            raise ValueError("critic returned no verdict")
         return {"pass": verdict.passed, "score": verdict.score, "feedback": verdict.feedback}
     except Exception:  # noqa: BLE001 - the critic must never block the user
         logger.warning("LLM critic failed for agent %s", definition.name, exc_info=True)

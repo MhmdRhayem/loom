@@ -45,6 +45,12 @@ _SCHEMA_PATCHES = (
     "DROP INDEX IF EXISTS ix_conversations_owner",
     "CREATE INDEX IF NOT EXISTS ix_conversations_owner_created"
     " ON conversations (owner_id, created_at)",
+    # Token accounting: a total alone cannot be priced (input and output differ several
+    # times over, cached input is discounted), so the split is recorded per turn.
+    "ALTER TABLE conversation_turns ADD COLUMN IF NOT EXISTS input_tokens INTEGER",
+    "ALTER TABLE conversation_turns ADD COLUMN IF NOT EXISTS output_tokens INTEGER",
+    "ALTER TABLE conversation_turns ADD COLUMN IF NOT EXISTS cached_input_tokens INTEGER",
+    "ALTER TABLE conversation_turns ADD COLUMN IF NOT EXISTS model_calls INTEGER",
 )
 
 

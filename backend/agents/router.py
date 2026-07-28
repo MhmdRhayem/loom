@@ -7,6 +7,7 @@ from langchain.chat_models import init_chat_model
 from pydantic import BaseModel, Field
 
 from backend.agents.registry import AgentRegistry
+from backend.core import usage
 from backend.core.config import Settings
 
 _RECENT_WINDOW = 6
@@ -78,8 +79,8 @@ async def route_turn(
         settings.model_id_for_tier("fast"),
         model_provider=settings.default_provider,
     )
-    decision: RouterDecision | None = await model.with_structured_output(RouterDecision).ainvoke(
-        _build_prompt(registry, messages, allowed_agents)
+    decision: RouterDecision | None = await usage.structured(
+        model, RouterDecision, _build_prompt(registry, messages, allowed_agents)
     )
     if decision is None:
         # with_structured_output returns None when the model answers without calling

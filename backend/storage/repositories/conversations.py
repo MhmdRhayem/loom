@@ -42,6 +42,11 @@ class ConversationRepository(Repository):
         model_tier: str | None = None,
         latency_ms: int | None = None,
         tokens_used: int | None = None,
+        input_tokens: int | None = None,
+        output_tokens: int | None = None,
+        cached_input_tokens: int | None = None,
+        model_calls: int | None = None,
+        title: str | None = None,
         agents: list[TurnAgentRecord] | None = None,
     ) -> int:
         """Ensure the conversation exists, then append a turn with an auto-assigned number.
@@ -56,7 +61,7 @@ class ConversationRepository(Repository):
         async with self._session() as session, session.begin():
             await session.execute(
                 pg_insert(Conversation)
-                .values(id=conversation_id, owner_id=owner_id, status="active")
+                .values(id=conversation_id, owner_id=owner_id, status="active", title=title)
                 .on_conflict_do_nothing(index_elements=["id"])
             )
             # Serialize concurrent turns on this conversation while we number the turn.
@@ -83,6 +88,10 @@ class ConversationRepository(Repository):
                 model_tier=model_tier,
                 latency_ms=latency_ms,
                 tokens_used=tokens_used,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                cached_input_tokens=cached_input_tokens,
+                model_calls=model_calls,
             )
             session.add(row)
             await session.flush()

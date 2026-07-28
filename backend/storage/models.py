@@ -79,7 +79,15 @@ class ConversationTurn(Base):
     retry_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     model_tier: Mapped[str | None] = mapped_column(Text)
     latency_ms: Mapped[int | None] = mapped_column(Integer)
+    # tokens_used is the turn's total across every model call it made, not just the
+    # agents': routing, critique, synthesis, memory extraction and titling are real
+    # spend. The split is stored because input and output are priced several times
+    # apart and cached input is discounted, so a single total cannot be costed.
     tokens_used: Mapped[int | None] = mapped_column(Integer)
+    input_tokens: Mapped[int | None] = mapped_column(Integer)
+    output_tokens: Mapped[int | None] = mapped_column(Integer)
+    cached_input_tokens: Mapped[int | None] = mapped_column(Integer)
+    model_calls: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )

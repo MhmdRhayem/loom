@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from langchain.chat_models import init_chat_model
 
+from backend.core import usage
 from backend.core.graph import build_initial_state
 from backend.core.prompt_builder import message_text
 from backend.learning.scoring import record_score
@@ -50,6 +51,8 @@ class TurnOutcome:
     tool_calls: list[dict] = field(default_factory=list)
     agent_runs: list[dict] = field(default_factory=list)
     retry_count: int = 0
+    # Every model call the turn made, split for pricing (see core/usage.py).
+    usage: dict | None = None
 
 
 @dataclass
@@ -83,6 +86,8 @@ async def run_turn(
     If db is None (Postgres was down at boot) the turn still runs and only
     persistence is skipped.
     """
+    # Every model call this turn makes, wherever it is made, folds into here.
+    turn_usage = usage.start_turn()
     conversation_id = await _owned_conversation_id(db, conversation_id, owner_id)
     history = await _load_history(db, settings, conversation_id)
     state = build_initial_state(
@@ -102,8 +107,9 @@ async def run_turn(
         result=result,
         latency_ms=latency_ms,
         first_turn=not history,
+        turn_usage=turn_usage,
     )
-    return _outcome_from(result)
+    return _outcome_from(result, turn_usage)
 
 
 async def stream_turn(
@@ -128,6 +134,8 @@ async def stream_turn(
     should replace the streamed draft with it (they differ e.g. after a critic
     retry, which is signalled by a "revise" stage event).
     """
+    # Every model call this turn makes, wherever it is made, folds into here.
+    turn_usage = usage.start_turn()
     conversation_id = await _owned_conversation_id(db, conversation_id, owner_id)
     history = await _load_history(db, settings, conversation_id)
     state = build_initial_state(
@@ -172,8 +180,9 @@ async def stream_turn(
         result=result,
         latency_ms=latency_ms,
         first_turn=not history,
+        turn_usage=turn_usage,
     )
-    yield "done", _outcome_from(result)
+    yield "done", _outcome_from(result, turn_usage)
 
 
 async def _finish_turn(
@@ -186,8 +195,24 @@ async def _finish_turn(
     result: dict,
     latency_ms: int,
     first_turn: bool,
+    turn_usage: usage.TokenUsage,
 ) -> None:
-    """Post-turn bookkeeping shared by both chat paths: telemetry, learning, titling."""
+    """Post-turn bookkeeping shared by both chat paths: telemetry, learning, titling.
+
+    Titling runs before persistence, not after: it is a model call like any other, and
+    the turn row is where its tokens get billed. Writing the title through record_turn
+    also saves the extra UPDATE the old order needed.
+    """
+    # A first turn (no stored history) names the conversation, like ChatGPT/Claude do.
+    title = (
+        await _title_conversation(
+            settings=settings,
+            user_message=message,
+            agent_response=result.get("agent_response"),
+        )
+        if first_turn
+        else None
+    )
     await _persist_turn(
         db=db,
         settings=settings,
@@ -196,19 +221,12 @@ async def _finish_turn(
         owner_id=owner_id,
         result=result,
         latency_ms=latency_ms,
+        title=title,
+        turn_usage=turn_usage,
     )
-    # A first turn (no stored history) names the conversation, like ChatGPT/Claude do.
-    if first_turn:
-        await _title_conversation(
-            db=db,
-            settings=settings,
-            conversation_id=result["conversation_id"],
-            user_message=message,
-            agent_response=result.get("agent_response"),
-        )
 
 
-def _outcome_from(result: dict) -> TurnOutcome:
+def _outcome_from(result: dict, turn_usage: usage.TokenUsage | None = None) -> TurnOutcome:
     """Map the graph's final state onto the outcome the HTTP layer returns."""
     return TurnOutcome(
         conversation_id=result["conversation_id"],
@@ -221,20 +239,19 @@ def _outcome_from(result: dict) -> TurnOutcome:
         tool_calls=result.get("tool_calls") or [],
         agent_runs=result.get("agent_runs") or [],
         retry_count=result.get("retry_count", 0) or 0,
+        usage=turn_usage.as_dict() if turn_usage else None,
     )
 
 
 async def _title_conversation(
     *,
-    db: Database | None,
     settings: Settings | None,
-    conversation_id: str,
     user_message: str,
     agent_response: str | None,
-) -> None:
-    """Name a new conversation with a short fast-tier-generated title. Never raises."""
-    if db is None or settings is None:
-        return
+) -> str | None:
+    """A short fast-tier title for a new conversation, or None. Never raises."""
+    if settings is None:
+        return None
     try:
         model = init_chat_model(
             settings.model_id_for_tier("fast"), model_provider=settings.default_provider
@@ -255,11 +272,11 @@ async def _title_conversation(
                 },
             ]
         )
-        title = " ".join(message_text(out).split()).strip("\"' ")[:80]
-        if title:
-            await db.conversations.set_title(uuid.UUID(conversation_id), title)
+        usage.record(out)
+        return " ".join(message_text(out).split()).strip("\"' ")[:80] or None
     except Exception:  # noqa: BLE001 - a missing title must never break the turn
-        logger.warning("could not title conversation %s", conversation_id, exc_info=True)
+        logger.warning("could not title a conversation", exc_info=True)
+        return None
 
 
 async def _owned_conversation_id(
@@ -360,6 +377,7 @@ async def _rolling_summary(
                 {"role": "user", "content": f"{base}New turns:\n{transcript}"},
             ]
         )
+        usage.record(out)
         summary = message_text(out).strip()
         if summary:
             await db.conversations.set_summary(conversation_id, summary, len(aged_out))
@@ -379,6 +397,8 @@ async def _persist_turn(
     owner_id: str | None,
     result: dict,
     latency_ms: int,
+    title: str | None = None,
+    turn_usage: usage.TokenUsage | None = None,
 ) -> None:
     """Persist this turn and fold in its learning signal. Never raises, so telemetry
     can't break the response."""
@@ -425,8 +445,14 @@ async def _persist_turn(
             retry_count=result.get("retry_count", 0) or 0,
             model_tier=model_tier(primary),
             latency_ms=latency_ms,
-            tokens_used=sum(int(r.get("tokens") or 0) for r in result.get("agent_runs") or [])
-            or None,
+            # The turn total, not the agents' subtotal: routing, critique, synthesis,
+            # memory extraction and titling are real spend and were previously invisible.
+            tokens_used=(turn_usage.total if turn_usage else None) or None,
+            input_tokens=turn_usage.input if turn_usage else None,
+            output_tokens=turn_usage.output if turn_usage else None,
+            cached_input_tokens=turn_usage.cached_input if turn_usage else None,
+            model_calls=turn_usage.calls if turn_usage else None,
+            title=title,
             agents=turn_agents,
         )
     except Exception:  # noqa: BLE001 - persistence is best-effort
