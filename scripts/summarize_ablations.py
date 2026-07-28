@@ -84,10 +84,23 @@ def summarize(path: Path) -> dict:
     tokens = _floats(rows, "agent_tokens") or _floats(rows, "tokens")
     retries = sum(int(float(r.get("retries") or 0)) for r in rows)
     confidences = _floats(rows, "confidence")
+    # The whole bill, not the agents' share. Absent on CSVs written before the turn
+    # accounting existed, in which case cost is simply unknown rather than guessed.
+    turn_tokens = _floats(rows, "turn_tokens")
+    input_tokens = sum(_floats(rows, "input_tokens"))
+    output_tokens = sum(_floats(rows, "output_tokens"))
+    cached_tokens = sum(_floats(rows, "cached_input_tokens"))
+    calls = sum(_floats(rows, "model_calls"))
 
     return {
         "file": path.name,
         "turns": total,
+        "turn_tokens": int(sum(turn_tokens)) if turn_tokens else None,
+        "input_tokens": int(input_tokens),
+        "output_tokens": int(output_tokens),
+        "cached_tokens": int(cached_tokens),
+        "calls": int(calls),
+        "cost": _cost(input_tokens, output_tokens, cached_tokens) if turn_tokens else None,
         "recall": hits / total,
         "exact": exact / total,
         "single_exact": (single_exact / len(single_rows)) if single_rows else None,
@@ -107,6 +120,25 @@ def summarize(path: Path) -> dict:
 
 def _fmt(value, spec="", dash="-"):
     return dash if value is None else format(value, spec)
+
+
+# USD per million tokens, from developers.openai.com/api/docs/pricing (fetched 2026-07-28).
+# A turn spans three tiers, so this blends them by the share of runs each tier takes on
+# the shipped roster rather than pretending a turn is one model. It is an estimate with
+# its assumption stated, not a billing figure; the exact split per call is not recorded.
+_BLENDED_INPUT = 2.00
+_BLENDED_OUTPUT = 12.00
+_CACHE_DISCOUNT = 0.10  # cached input bills at 10% of the input rate
+
+
+def _cost(input_tokens: float, output_tokens: float, cached_tokens: float) -> float:
+    """Blended-rate cost for one run. cached_tokens is a subset of input_tokens."""
+    full_price_input = max(input_tokens - cached_tokens, 0.0)
+    return (
+        full_price_input / 1e6 * _BLENDED_INPUT
+        + cached_tokens / 1e6 * _BLENDED_INPUT * _CACHE_DISCOUNT
+        + output_tokens / 1e6 * _BLENDED_OUTPUT
+    )
 
 
 def main() -> None:
@@ -142,6 +174,32 @@ def main() -> None:
         "\n1-agent = exact match on the 35 single-domain prompts;"
         " fanout = how many of the 5 multi-domain prompts routed to >1 agent."
     )
+
+    if any(s.get("turn_tokens") for s in results.values() if s):
+        cost_header = (
+            f"\n{'config':<14}{'calls':>7}{'turn tok':>10}{'agent tok':>11}{'plumbing':>10}"
+            f"{'output':>8}{'cached':>8}{'est $':>9}{'$/turn':>9}"
+        )
+        print(cost_header)
+        print("-" * len(cost_header.strip("\n")))
+        for label, s in results.items():
+            if not s or not s.get("turn_tokens"):
+                continue
+            turn_tok = s["turn_tokens"]
+            plumbing = (turn_tok - s["tokens"]) / turn_tok if turn_tok else 0
+            out_share = s["output_tokens"] / turn_tok if turn_tok else 0
+            cached_share = s["cached_tokens"] / s["input_tokens"] if s["input_tokens"] else 0
+            print(
+                f"{label:<14}{s['calls']:>7,}{turn_tok:>10,}{s['tokens']:>11,}"
+                f"{plumbing:>10.0%}{out_share:>8.1%}{cached_share:>8.1%}"
+                f"{s['cost']:>9.4f}{s['cost'] / s['turns']:>9.5f}"
+            )
+        print(
+            f"\nest $ blends the three tiers at ${_BLENDED_INPUT:.2f}/M input and"
+            f" ${_BLENDED_OUTPUT:.2f}/M output, cached input at {_CACHE_DISCOUNT:.0%} of input."
+            "\nplumbing = the share of tokens spent by the router, critic, synthesizer,"
+            " memory extractor and titler."
+        )
 
     base = results.get("baseline")
     if base:
