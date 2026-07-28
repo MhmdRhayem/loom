@@ -43,3 +43,4 @@ Thumbs.db
 
 # Ablation run logs (one per configuration, regenerated each run)
 .ablation-*.log
+.ablation.lock

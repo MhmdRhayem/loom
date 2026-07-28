@@ -16,6 +16,7 @@ Writes benchmarks/run-<stamp>-<label>.csv per configuration and prints a summary
 from __future__ import annotations
 
 import argparse
+import contextlib
 import os
 import socket
 import subprocess
@@ -66,13 +67,21 @@ def _reset_store() -> None:
     path, address updates persist) and auto-memory accumulates across the prompt set, so
     without this a later configuration would be measured against a different store than
     the first one saw.
+
+    Bounded, because seeding re-indexes the retrieval corpus and an unreachable Qdrant or
+    embedding endpoint would otherwise hang the whole harness with nothing on stdout.
     """
-    subprocess.run(
-        [sys.executable, "-m", "demo.shopping_assistant.seed", "--reset"],
-        cwd=REPO,
-        check=True,
-        capture_output=True,
-    )
+    print("  resetting the store ...", flush=True)
+    try:
+        subprocess.run(
+            [sys.executable, "-m", "demo.shopping_assistant.seed", "--reset"],
+            cwd=REPO,
+            check=True,
+            capture_output=True,
+            timeout=300,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError("seed --reset did not finish within 300s") from exc
     from sqlalchemy import create_engine, text  # imported here: only this path needs it
 
     from backend.core.config import Settings
@@ -161,7 +170,9 @@ def run_one(label: str) -> Path | None:
         stderr=subprocess.STDOUT,
     )
     try:
+        print("  waiting for the backend ...", flush=True)
         _wait_for_health(server, log_path)
+        print("  replaying the prompt set ...", flush=True)
         from scripts.benchmark import run  # imported late: needs the repo root on sys.path
 
         return run(BASE_URL, EMAIL, PASSWORD, repeat=1, label=label)
@@ -196,6 +207,48 @@ def _wait_for_port_free(timeout: float = 60.0) -> None:
     raise RuntimeError("port 8000 never freed; refusing to start the next configuration")
 
 
+@contextlib.contextmanager
+def _single_instance():
+    """Refuse to run while another harness is running.
+
+    Two copies racing is not a hypothetical: they reset the store under each other and
+    fight over :8000, and the symptom is a run that simply stops producing output rather
+    than anything that looks like an error. The lock file records the pid so a stale one
+    from a killed run can be told apart from a live instance.
+    """
+    lock = REPO / ".ablation.lock"
+    if lock.exists():
+        owner = lock.read_text(encoding="utf-8").strip()
+        if _pid_alive(owner):
+            raise SystemExit(
+                f"another ablation run is active (pid {owner}). Wait for it, or stop it "
+                f"and delete {lock.name}."
+            )
+        print(f"  clearing a stale lock from pid {owner}", flush=True)
+    lock.write_text(str(os.getpid()), encoding="utf-8")
+    try:
+        yield
+    finally:
+        lock.unlink(missing_ok=True)
+
+
+def _pid_alive(pid: str) -> bool:
+    if not pid.isdigit():
+        return False
+    if sys.platform == "win32":
+        out = subprocess.run(
+            ["tasklist", "/FI", f"PID eq {pid}", "/NH"], capture_output=True, text=True
+        )
+        return pid in out.stdout
+    try:
+        os.kill(int(pid), 0)
+    except (ProcessLookupError, ValueError):
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("labels", nargs="*", default=None, help=f"subset of {list(CONFIGS)}")
@@ -207,12 +260,13 @@ def main() -> None:
         parser.error(f"unknown configuration(s): {unknown}; known: {list(CONFIGS)}")
 
     written: dict[str, Path | None] = {}
-    for label in labels:
-        try:
-            written[label] = run_one(label)
-        except Exception as exc:  # noqa: BLE001 - one bad configuration must not lose the rest
-            print(f"!! {label} failed: {exc}")
-            written[label] = None
+    with _single_instance():
+        for label in labels:
+            try:
+                written[label] = run_one(label)
+            except Exception as exc:  # noqa: BLE001 - one bad config must not lose the rest
+                print(f"!! {label} failed: {exc}", flush=True)
+                written[label] = None
 
     print(f"\n{'=' * 70}\nablation runs written\n{'=' * 70}")
     for label, path in written.items():
