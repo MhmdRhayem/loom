@@ -78,6 +78,20 @@ fast-tier critic judging against the agent's own `eval_rubric`, sampled per agen
 fail-soft: if it errors, the answer passes through flagged — and crucially yields **no
 learning signal** (a critic that didn't run has nothing to teach; it must never score 1.0).
 
+**Cost accounting** (`core/usage.py`): a turn-scoped accumulator collects every model call
+it makes, split into input, output and cached input. The split is the point: input and
+output bill several times apart and cached input is discounted 90%, so a single
+`total_tokens` figure cannot be converted into money. The accumulator lives in a
+`ContextVar` because the calls needing counting are spread across the router, critic,
+synthesizer, memory extractor, titler and summarizer, none of which share a call path;
+asyncio hands each task a copy of the context, so a mutable accumulator stored before the
+tasks spawn is the same object in all of them and parallel agents fold into one total.
+The four `with_structured_output` call sites pass `include_raw`, without which they return
+only the parsed object and are unbillable by construction. Measured on a live four-turn
+conversation: **plumbing is 41% of a turn's tokens**, output is **4.9%** of tokens (this
+workload is overwhelmingly input-bound), and prompt caching only engages from the fourth
+turn, covering 8% of input — a fully warm prefix would be ~62% cheaper.
+
 **Learning.** Rewards from eval verdicts and `POST /feedback` thumbs fold into an EMA score
 per `(agent, category)` — computed *inside* the SQL upsert, so concurrent rewards compose
 instead of last-writer-wins. Scores are observability (dashboards), not routing input: the
@@ -140,7 +154,7 @@ The filename stem **must** equal `name`; the roster is validated at boot (includ
 `DEFAULT_PROVIDER` (anthropic/openai/google) resolves tiers via `ModelTiers` — one
 variable swaps the fleet. Keys: `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` /
 `GOOGLE_API_KEY`. Flags (all default on): `ENABLE_MEMORY`, `ENABLE_EVALUATION`,
-`ENABLE_LEARNING`, `ENABLE_DREAMING`. Tuning: `MAX_DELEGATION_DEPTH`,
+`ENABLE_LEARNING`, `ENABLE_DREAMING`, `ENABLE_ROUTING_CACHE`. Tuning: `MAX_DELEGATION_DEPTH`,
 `DREAM_MIN_MEMORIES`, `DREAM_INTERVAL_HOURS`, `CORS_ALLOW_ORIGINS`, `DATABASE_URL`,
 `REDIS_URL`. (Anthropic + OpenAI model IDs verified against live APIs; Google IDs are
 placeholders to verify at integration.) Demo-side: `AUTH_SECRET`, `QDRANT_URL`,
@@ -167,9 +181,15 @@ administration). 38 routes total; the role/route matrix is in the thesis appendi
 `auto_memory` (unique per owner+topic), `dream_runs`; plus the demo's `shop` schema
 (11 tables: products, coupons, orders + items, returns, accounts, carts, payments, the
 14-entry FAQ handbook, tickets, and the merchant `product_changes` approval queue).
-**Redis** — the demo's login and chat rate limiters, and nothing else: `RedisStore` is a
-lifecycle wrapper, since Postgres is the system of record and there is no second copy of
-it to keep warm. **Qdrant** (dedicated vector database, see
+**Redis** — the demo's login and chat rate limiters, plus the router's decision cache
+(`core/routing_cache.py`). The cache exists because the accounting measured the router
+as one of five model calls per turn and a storefront asks the same handful of intents
+endlessly. It is safe to share between users because a routing decision is a pure
+classification of the text against a fixed roster: it reads no per-user data. The key
+covers the question, the roster shown to the model (so editing an agent's description
+invalidates it) and the caller's visibility (so a merchant's decision is never served
+to a client), and `_validate` still runs on a hit, so the fallback and visibility rules
+apply either way. Gated by `ENABLE_ROUTING_CACHE`, fail-open, 1h TTL. **Qdrant** (dedicated vector database, see
 [VECTOR_DB_CHOICE.md](VECTOR_DB_CHOICE.md)) — semantic-retrieval collections `loom_faq`
 and `loom_products`. All three run from `docker-compose.yml` with pinned images
 (postgres:18, redis:8-alpine, qdrant/qdrant:v1.18.2).
@@ -244,7 +264,12 @@ responsive off-canvas sidebar.
 | `storage/redis_store.py` | Redis client lifecycle (the demo's rate limiters use it) |
 | `_platform.py` | Windows selector event loop (async psycopg) |
 | `scripts/init_db.py` | Create/migrate the database schema (idempotent) |
-| `scripts/benchmark.py` | Outside-in replay benchmark → CSV (routing hits, eval, latency, tokens) |
+| `core/usage.py` | Per-turn token accounting: input/output/cached split across every model call |
+| `core/routing_cache.py` | Redis-backed reuse of the router's decision, keyed on question + roster + visibility |
+| `scripts/benchmark.py` | Outside-in replay benchmark → CSV (routing, eval, latency, token split) |
+| `scripts/serve.py` | Runs the API on a loop async psycopg accepts (a bare `uvicorn` cannot) |
+| `scripts/run_ablations.py`, `summarize_ablations.py` | Flag/roster ablations → labelled CSVs → cost table |
+| `scripts/probe_memory_layers.py` | The memory-layer hypotheses the replay benchmark cannot reach |
 | `demo/shopping_assistant/` | `app.py` (root), `auth.py`, `tools.py`, `retrieval.py` (RAG), `db.py`/`seed.py` (shop schema + policy corpus), `shop_routes.py`, `manage_routes.py`, `definitions/` (8 agents) |
 | `frontend/src/` | The React app (pages: Chat, Conversations, Storefront, Products, ShopDashboard, Dashboard, Users, Login) |
 

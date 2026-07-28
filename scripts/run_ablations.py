@@ -38,6 +38,10 @@ CONFIGS: dict[str, tuple[str, dict[str, str]]] = {
     "memory-off": ("demo.shopping_assistant.app", {"ENABLE_MEMORY": "false"}),
     "learning-off": ("demo.shopping_assistant.app", {"ENABLE_LEARNING": "false"}),
     "dreaming-off": ("demo.shopping_assistant.app", {"ENABLE_DREAMING": "false"}),
+    "routing-cache-off": (
+        "demo.shopping_assistant.app",
+        {"ENABLE_ROUTING_CACHE": "false"},
+    ),
     "monolith": ("demo.shopping_assistant.app_monolith", {}),
 }
 
@@ -90,6 +94,28 @@ def _reset_store() -> None:
     with create_engine(dsn).begin() as conn:
         for table in ("auto_memory", "dream_runs"):
             conn.execute(text(f"DELETE FROM {table} WHERE owner_id = :o"), {"o": EMAIL})
+    _flush_routing_cache()
+
+
+def _flush_routing_cache() -> None:
+    """Drop cached routing decisions between configurations.
+
+    Without this the comparison quietly rots: the first configuration populates the
+    cache, and every later one answers the same forty prompts from it, so they look
+    faster and cheaper for a reason that has nothing to do with what was ablated.
+    """
+    import redis  # imported here: only this path needs the sync client
+
+    from backend.core.config import Settings
+
+    try:
+        client = redis.Redis.from_url(Settings.from_env().redis_url, decode_responses=True)
+        keys = list(client.scan_iter(match="route:*", count=500))
+        if keys:
+            client.delete(*keys)
+        print(f"  flushed {len(keys)} cached routing decisions", flush=True)
+    except Exception as exc:  # noqa: BLE001 - no Redis means nothing to flush
+        print(f"  routing cache not flushed ({exc})", flush=True)
 
 
 def _wait_for_health(server: subprocess.Popen, log: Path, timeout: float = 300.0) -> None:

@@ -35,10 +35,12 @@ def build_graph(
     *,
     fallback_agent: str | None = None,
     memory: MemoryRepository | None = None,
+    cache: Any | None = None,
 ):
     """Compile and return the conversation graph wired to the registry and settings."""
 
     auto_memory_on = settings.enable_memory and memory is not None
+    routing_cache_client = cache if settings.enable_routing_cache else None
 
     async def load_memory(state: ConversationState) -> dict[str, Any]:
         """Surface the owner's stored memories as hints. Never raises."""
@@ -55,6 +57,7 @@ def build_graph(
             settings,
             fallback_agent=fallback_agent,
             allowed_agents=state.get("allowed_agents"),
+            cache=routing_cache_client,
         )
         agents = decision["agents"]
         return {

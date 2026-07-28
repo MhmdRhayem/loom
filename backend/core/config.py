@@ -69,6 +69,9 @@ class Settings:
     enable_evaluation: bool = True  # structural + LLM critic (+ retry)
     enable_learning: bool = True  # per-(agent,category) EMA scoring
     enable_dreaming: bool = True  # Layer 4 consolidation
+    # Redis-backed reuse of the router's decision for an identical question against
+    # an identical roster. Off makes every turn pay for its own classification.
+    enable_routing_cache: bool = True
     max_delegation_depth: int = 2  # how deep agent-to-agent calls may nest (1 disables delegation)
     dream_min_memories: int = 8  # Layer 4: min stored memories before a consolidation run
     dream_interval_hours: int = 24  # Layer 4: min hours between consolidation runs
@@ -95,6 +98,7 @@ class Settings:
             enable_evaluation=_flag("ENABLE_EVALUATION"),
             enable_learning=_flag("ENABLE_LEARNING"),
             enable_dreaming=_flag("ENABLE_DREAMING"),
+            enable_routing_cache=_flag("ENABLE_ROUTING_CACHE"),
             max_delegation_depth=int(os.environ.get("MAX_DELEGATION_DEPTH", "2")),
             dream_min_memories=int(os.environ.get("DREAM_MIN_MEMORIES", "8")),
             dream_interval_hours=int(os.environ.get("DREAM_INTERVAL_HOURS", "24")),

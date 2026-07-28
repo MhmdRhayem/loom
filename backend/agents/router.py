@@ -7,7 +7,7 @@ from langchain.chat_models import init_chat_model
 from pydantic import BaseModel, Field
 
 from backend.agents.registry import AgentRegistry
-from backend.core import usage
+from backend.core import routing_cache, usage
 from backend.core.config import Settings
 
 _RECENT_WINDOW = 6
@@ -48,6 +48,14 @@ def _format_menu(registry: AgentRegistry, allowed_agents: Collection[str] | None
     return "\n".join(lines)
 
 
+def _last_user_text(messages: list[dict[str, Any]]) -> str:
+    """The message being routed. Only this drives the decision, so only this is keyed."""
+    for message in reversed(messages):
+        if message.get("role") == "user":
+            return str(message.get("content", ""))
+    return ""
+
+
 def _build_prompt(
     registry: AgentRegistry,
     messages: list[dict[str, Any]],
@@ -69,23 +77,38 @@ async def route_turn(
     fallback_agent: str | None = None,
     min_confidence: float = _DEFAULT_MIN_CONFIDENCE,
     allowed_agents: Collection[str] | None = None,
+    cache: routing_cache.CacheClient | None = None,
 ) -> dict[str, Any]:
     """Pick agents for this turn. Returns ``{agents, confidence, reason, category}``.
 
     allowed_agents (None = no restriction) limits both the menu the model sees and
     the picks accepted back; the fallback agent is always exempt.
+
+    With a cache, an identical question against an identical roster and visibility skips
+    the model call. Only the model's raw decision is cached; _validate still runs on
+    every turn, so the fallback and visibility rules apply on a hit as well as a miss.
     """
-    model = init_chat_model(
-        settings.model_id_for_tier("fast"),
-        model_provider=settings.default_provider,
-    )
-    decision: RouterDecision | None = await usage.structured(
-        model, RouterDecision, _build_prompt(registry, messages, allowed_agents)
-    )
-    if decision is None:
-        # with_structured_output returns None when the model answers without calling
-        # the schema tool — treat it like any other unusable decision.
-        decision = RouterDecision(agents=[], confidence=0.0, reason="router returned no decision")
+    menu = _format_menu(registry, allowed_agents)
+    key = routing_cache.fingerprint(_last_user_text(messages), menu, allowed_agents)
+    cached = await routing_cache.get(cache, key)
+    if cached is not None:
+        decision = RouterDecision(**cached)
+    else:
+        model = init_chat_model(
+            settings.model_id_for_tier("fast"),
+            model_provider=settings.default_provider,
+        )
+        decision = await usage.structured(
+            model, RouterDecision, _build_prompt(registry, messages, allowed_agents)
+        )
+        if decision is None:
+            # with_structured_output returns None when the model answers without calling
+            # the schema tool — treat it like any other unusable decision.
+            decision = RouterDecision(
+                agents=[], confidence=0.0, reason="router returned no decision"
+            )
+        else:
+            await routing_cache.put(cache, key, decision.model_dump())
     agents = _validate(
         decision,
         registry,

@@ -74,16 +74,6 @@ def create_app(
             db = None
         app.state.db = db
 
-        # Build the graph after the DB so the Auto-Memory layer can use it.
-        # No DB (or flag off) -> build_graph leaves the memory nodes as no-ops.
-        app.state.graph = build_graph(
-            registry,
-            settings,
-            tool_provider,
-            fallback_agent=fallback_agent,
-            memory=db.memory if db is not None else None,
-        )
-
         redis_store: RedisStore | None = RedisStore(settings.redis_url)
         try:
             await redis_store.open()
@@ -91,6 +81,17 @@ def create_app(
             logger.warning("Redis unavailable at startup: %s", exc)
             redis_store = None
         app.state.redis = redis_store
+
+        # Built after both stores so the memory layer and the routing cache can use
+        # them; either being absent just leaves that part of the pipeline a no-op.
+        app.state.graph = build_graph(
+            registry,
+            settings,
+            tool_provider,
+            fallback_agent=fallback_agent,
+            memory=db.memory if db is not None else None,
+            cache=redis_store.client if redis_store is not None else None,
+        )
 
         try:
             yield
